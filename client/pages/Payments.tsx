@@ -62,16 +62,23 @@ import { Payment, RecordPaymentRequest, Customer, PaymentMethod } from "../../sh
 
 interface CustomerPaymentInfo {
   customer: Customer;
-  lastMonthAmount: number;
   currentMonthAmount: number;
-  lastMonthPaid: number;
   currentMonthPaid: number;
   currentMonthDue: number;
-  lastMonthDue: number;
-  pendingDues: number;
+  month1Amount: number;  // Last month (July)
+  month1Paid: number;
+  month1Due: number;
+  month2Amount: number;  // 2 months ago (June)
+  month2Paid: number;
+  month2Due: number;
+  month3Amount: number;  // 3 months ago (May)
+  month3Paid: number;
+  month3Due: number;
+  olderDues: number;     // Dues older than 3 months
   totalDue: number;
   paymentStatus: 'paid' | 'partial' | 'pending' | 'overdue';
   isOverdue: boolean;
+  lastPaymentDate: string | null;
 }
 
 const paymentMethods = ["Cash"]; // Only cash payments are recorded manually
@@ -86,9 +93,16 @@ export default function Payments() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [activeTab, setActiveTab] = useState("current-month");
+
+  // Calculate month names for tabs
+  const getCurrentMonthName = () => format(new Date(), "MMMM yyyy");
+  const getMonthName = (monthsAgo: number) => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - monthsAgo);
+    return format(date, "MMMM yyyy");
+  };
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerPaymentInfo | null>(null);
-  const [isLastMonthPayment, setIsLastMonthPayment] = useState(false);
   const [newPayment, setNewPayment] = useState<RecordPaymentRequest>({
     customerId: 0,
     amount: 0,
@@ -146,14 +160,6 @@ export default function Payments() {
 
       let paymentNotes = newPayment.notes || '';
 
-      // Add month/year information for last month payments
-      if (isLastMonthPayment) {
-        const lastMonthDate = new Date();
-        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
-        const lastMonth = lastMonthDate.toLocaleString('default', { month: 'long' });
-        const lastYear = lastMonthDate.getFullYear();
-        paymentNotes = `${paymentNotes} [MONTH:${lastMonth}] [YEAR:${lastYear}]`.trim();
-      }
 
       const response = await paymentApi.record({
         ...newPayment,
@@ -187,7 +193,6 @@ export default function Payments() {
       // Close dialog and reset form
       setIsPaymentDialogOpen(false);
       setSelectedCustomer(null);
-      setIsLastMonthPayment(false);
       setNewPayment({
         customerId: 0,
         amount: 0,
@@ -357,7 +362,6 @@ export default function Payments() {
 
   const handleQuickPayment = (customer: CustomerPaymentInfo) => {
     setSelectedCustomer(customer);
-    setIsLastMonthPayment(false);
     setNewPayment({
       customerId: customer.customer.id,
       amount: customer.totalDue,
@@ -367,18 +371,6 @@ export default function Payments() {
     setIsPaymentDialogOpen(true);
   };
 
-  const handleLastMonthPayment = (customer: CustomerPaymentInfo) => {
-    setSelectedCustomer(customer);
-    setIsLastMonthPayment(true);
-    setNewPayment({
-      customerId: customer.customer.id,
-      amount: customer.lastMonthDue,
-      paymentMethod: "Cash",
-      paidDate: format(new Date(), "yyyy-MM-dd"),
-      notes: "Payment for last month bill",
-    });
-    setIsPaymentDialogOpen(true);
-  };
 
   // Filter customers based on active tab
   const getFilteredCustomers = () => {
@@ -388,12 +380,15 @@ export default function Payments() {
     if (activeTab === "current-month") {
       // Show customers with current month bills
       baseCustomers = customers.filter(c => c.currentMonthAmount > 0);
-    } else if (activeTab === "last-month") {
+    } else if (activeTab === "month-1") {
       // Show customers with last month data
-      baseCustomers = customers.filter(c => c.lastMonthAmount > 0);
-    } else if (activeTab === "overdue") {
-      // Show customers who are overdue
-      baseCustomers = customers.filter(c => c.isOverdue && c.totalDue > 0);
+      baseCustomers = customers.filter(c => c.month1Amount > 0);
+    } else if (activeTab === "month-2") {
+      // Show customers with 2 months ago data
+      baseCustomers = customers.filter(c => c.month2Amount > 0);
+    } else if (activeTab === "month-3") {
+      // Show customers with 3 months ago data
+      baseCustomers = customers.filter(c => c.month3Amount > 0);
     }
 
     // Apply search and status filters
@@ -418,8 +413,10 @@ export default function Payments() {
 
   // Calculate summary statistics
   const totalCurrentMonth = customers.reduce((sum, c) => sum + (c.currentMonthAmount || 0), 0);
-  const totalLastMonth = customers.reduce((sum, c) => sum + (c.lastMonthAmount || 0), 0);
-  const totalPendingDues = customers.reduce((sum, c) => sum + (c.pendingDues || 0), 0);
+  const totalMonth1 = customers.reduce((sum, c) => sum + (c.month1Amount || 0), 0);
+  const totalMonth2 = customers.reduce((sum, c) => sum + (c.month2Amount || 0), 0);
+  const totalMonth3 = customers.reduce((sum, c) => sum + (c.month3Amount || 0), 0);
+  const totalOlderDues = customers.reduce((sum, c) => sum + (c.olderDues || 0), 0);
   const paidCustomers = customers.filter(c => c.paymentStatus === 'paid').length;
   const overdueCustomers = customers.filter(c => c.isOverdue && (c.totalDue || 0) > 0).length;
   const overdueAmount = customers.filter(c => c.isOverdue).reduce((sum, c) => sum + (c.totalDue || 0), 0);
@@ -567,10 +564,10 @@ export default function Payments() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
               <div className="flex justify-between items-center">
                 <TabsList>
-                  <TabsTrigger value="current-month">Current Month</TabsTrigger>
-                  <TabsTrigger value="last-month">Last Month</TabsTrigger>
-                  <TabsTrigger value="overdue">Overdue Customers</TabsTrigger>
-                  <TabsTrigger value="history">Payment History</TabsTrigger>
+                  <TabsTrigger value="current-month">{getCurrentMonthName()}</TabsTrigger>
+                  <TabsTrigger value="month-1">{getMonthName(1)}</TabsTrigger>
+                  <TabsTrigger value="month-2">{getMonthName(2)}</TabsTrigger>
+                  <TabsTrigger value="month-3">{getMonthName(3)}</TabsTrigger>
                 </TabsList>
                 
                 <div className="flex gap-4">
@@ -603,9 +600,9 @@ export default function Payments() {
               <TabsContent value="current-month" className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-medium">Current Month Bills</h3>
+                    <h3 className="text-lg font-medium">{getCurrentMonthName()} Bills</h3>
                     <p className="text-sm text-muted-foreground">
-                      Bills for {format(new Date(), "MMMM yyyy")} up to current date
+                      Bills for {getCurrentMonthName()} up to current date
                     </p>
                   </div>
                   <div className="text-right">
@@ -618,9 +615,9 @@ export default function Payments() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Last Month</TableHead>
+                        <TableHead>Previous Months</TableHead>
                         <TableHead>Current Month</TableHead>
-                        <TableHead>Pending Dues</TableHead>
+                        <TableHead>Outstanding</TableHead>
                         <TableHead>Total Due</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Last Payment</TableHead>
@@ -637,9 +634,9 @@ export default function Payments() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium">₹{(customer.lastMonthAmount || 0).toLocaleString()}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Paid: ₹{(customer.lastMonthPaid || 0).toLocaleString()}
+                            <div className="text-xs space-y-1">
+                              <div>Last 3 months: ₹{((customer.month1Amount || 0) + (customer.month2Amount || 0) + (customer.month3Amount || 0)).toLocaleString()}</div>
+                              <div className="text-muted-foreground">Older dues: ₹{(customer.olderDues || 0).toLocaleString()}</div>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -649,13 +646,10 @@ export default function Payments() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {(customer.pendingDues || 0) > 0 ? (
-                              <span className="text-warning font-medium">
-                                ₹{(customer.pendingDues || 0).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
+                            <div className="text-xs space-y-1">
+                              <div>Month dues: ₹{((customer.month1Due || 0) + (customer.month2Due || 0) + (customer.month3Due || 0)).toLocaleString()}</div>
+                              <div className="text-muted-foreground">Older: ₹{(customer.olderDues || 0).toLocaleString()}</div>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="font-medium text-lg">
@@ -725,17 +719,17 @@ export default function Payments() {
                 )}
               </TabsContent>
 
-              {/* Last Month Tab */}
-              <TabsContent value="last-month" className="space-y-4">
+              {/* Month 1 (Last Month) Tab */}
+              <TabsContent value="month-1" className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-medium">Last Month Bills</h3>
+                    <h3 className="text-lg font-medium">{getMonthName(1)} Bills</h3>
                     <p className="text-sm text-muted-foreground">
-                      Payment status for {format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "MMMM yyyy")}
+                      Payment status for {getMonthName(1)}
                     </p>
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold">₹{totalLastMonth.toLocaleString()}</div>
+                    <div className="text-2xl font-bold">₹{totalMonth1.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">{filteredCustomers.length} customers</div>
                   </div>
                 </div>
@@ -745,7 +739,7 @@ export default function Payments() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Last Month Bill</TableHead>
+                        <TableHead>Month Bill</TableHead>
                         <TableHead>Amount Paid</TableHead>
                         <TableHead>Remaining Due</TableHead>
                         <TableHead>Status</TableHead>
@@ -755,28 +749,28 @@ export default function Payments() {
                     </TableHeader>
                     <TableBody>
                       {filteredCustomers.map((customer) => {
-                        const lastMonthDue = Math.max(0, (customer.lastMonthAmount || 0) - (customer.lastMonthPaid || 0));
-                        const lastMonthStatus = customer.lastMonthPaid >= customer.lastMonthAmount ? 'paid' :
-                                              customer.lastMonthPaid > 0 ? 'partial' : 'pending';
+                        const monthDue = customer.month1Due || 0;
+                        const monthStatus = (customer.month1Paid || 0) >= (customer.month1Amount || 0) ? 'paid' :
+                                            (customer.month1Paid || 0) > 0 ? 'partial' : 'pending';
 
                         return (
                           <TableRow key={customer.customer.id}>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{customer.customer.name}</div>
-                              <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
+                                <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium">₹{(customer.lastMonthAmount || 0).toLocaleString()}</div>
+                              <div className="font-medium">₹{(customer.month1Amount || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium text-green-600">₹{(customer.lastMonthPaid || 0).toLocaleString()}</div>
+                              <div className="font-medium text-green-600">₹{(customer.month1Paid || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              {lastMonthDue > 0 ? (
+                              {monthDue > 0 ? (
                                 <span className="text-warning font-medium">
-                                  ₹{lastMonthDue.toLocaleString()}
+                                  ₹{monthDue.toLocaleString()}
                                 </span>
                               ) : (
                                 <span className="text-green-600">Paid</span>
@@ -784,18 +778,18 @@ export default function Payments() {
                             </TableCell>
                             <TableCell>
                               <Badge variant={
-                                lastMonthStatus === "paid" ? "default" :
-                                lastMonthStatus === "partial" ? "secondary" : "outline"
+                                monthStatus === "paid" ? "default" :
+                                monthStatus === "partial" ? "secondary" : "outline"
                               }>
-                                {lastMonthStatus === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
-                                {lastMonthStatus === "partial" && <AlertTriangle className="h-3 w-3 mr-1" />}
-                                {lastMonthStatus.charAt(0).toUpperCase() + lastMonthStatus.slice(1)}
+                                {monthStatus === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
+                                {monthStatus === "partial" && <AlertTriangle className="h-3 w-3 mr-1" />}
+                                {monthStatus.charAt(0).toUpperCase() + monthStatus.slice(1)}
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              {customer.customer.lastPayment ? (
+                              {customer.lastPaymentDate ? (
                                 <span className="text-sm">
-                                  {format(new Date(customer.customer.lastPayment), "MMM dd, yyyy")}
+                                  {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground text-sm">No payments</span>
@@ -810,20 +804,9 @@ export default function Payments() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem
-                                    onClick={() => handleSendLastMonthBill(customer)}
-                                    disabled={generatingBill === customer.customer.id || customer.lastMonthAmount <= 0}
-                                  >
-                                    {generatingBill === customer.customer.id ? (
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    ) : (
-                                      <FileText className="h-4 w-4 mr-2" />
-                                    )}
-                                    {generatingBill === customer.customer.id ? 'Generating...' : 'Send Bill via WhatsApp'}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleLastMonthPayment(customer)}>
+                                  <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
                                     <CreditCard className="h-4 w-4 mr-2" />
-                                    Record Cash Payment
+                                    Record Payment
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -844,17 +827,17 @@ export default function Payments() {
                 )}
               </TabsContent>
 
-              {/* Overdue Customers Tab */}
-              <TabsContent value="overdue" className="space-y-4">
+              {/* Month 2 Tab */}
+              <TabsContent value="month-2" className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-medium">Overdue Customers</h3>
+                    <h3 className="text-lg font-medium">{getMonthName(2)} Bills</h3>
                     <p className="text-sm text-muted-foreground">
-                      Customers who haven't paid for over 3 months
+                      Payment status for {getMonthName(2)}
                     </p>
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-destructive">₹{overdueAmount.toLocaleString()}</div>
+                    <div className="text-2xl font-bold">₹{totalMonth2.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">{filteredCustomers.length} customers</div>
                   </div>
                 </div>
@@ -864,60 +847,61 @@ export default function Payments() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Total Outstanding</TableHead>
-                        <TableHead>Last Payment</TableHead>
-                        <TableHead>Days Overdue</TableHead>
+                        <TableHead>Month Bill</TableHead>
+                        <TableHead>Amount Paid</TableHead>
+                        <TableHead>Remaining Due</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Last Payment</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredCustomers.map((customer) => {
-                        const daysSinceLastPayment = customer.customer.lastPayment ?
-                          Math.floor((new Date().getTime() - new Date(customer.customer.lastPayment).getTime()) / (1000 * 60 * 60 * 24)) :
-                          999;
+                        const monthDue = customer.month2Due || 0;
+                        const monthStatus = (customer.month2Paid || 0) >= (customer.month2Amount || 0) ? 'paid' :
+                                            (customer.month2Paid || 0) > 0 ? 'partial' : 'pending';
 
                         return (
                           <TableRow key={customer.customer.id}>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{customer.customer.name}</div>
-                              <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
+                                <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium text-destructive text-lg">
-                                ₹{(customer.totalDue || 0).toLocaleString()}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Current: ₹{(customer.currentMonthAmount || 0).toLocaleString()} |
-                                Pending: ₹{(customer.pendingDues || 0).toLocaleString()}
-                              </div>
+                              <div className="font-medium">₹{(customer.month2Amount || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              {customer.customer.lastPayment ? (
-                                <div>
-                                  <span className="text-sm">
-                                    {format(new Date(customer.customer.lastPayment), "MMM dd, yyyy")}
-                                  </span>
-                                  <div className="text-xs text-muted-foreground">
-                                    ₹{(customer.lastMonthPaid || 0) + (customer.currentMonthPaid || 0)}
-                                  </div>
-                                </div>
+                              <div className="font-medium text-green-600">₹{(customer.month2Paid || 0).toLocaleString()}</div>
+                            </TableCell>
+                            <TableCell>
+                              {monthDue > 0 ? (
+                                <span className="text-warning font-medium">
+                                  ₹{monthDue.toLocaleString()}
+                                </span>
                               ) : (
-                                <span className="text-muted-foreground text-sm">No payments</span>
+                                <span className="text-green-600">Paid</span>
                               )}
                             </TableCell>
                             <TableCell>
-                              <div className="text-destructive font-medium">
-                                {daysSinceLastPayment > 999 ? '999+' : daysSinceLastPayment} days
-                              </div>
+                              <Badge variant={
+                                monthStatus === "paid" ? "default" :
+                                monthStatus === "partial" ? "secondary" : "outline"
+                              }>
+                                {monthStatus === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
+                                {monthStatus === "partial" && <AlertTriangle className="h-3 w-3 mr-1" />}
+                                {monthStatus.charAt(0).toUpperCase() + monthStatus.slice(1)}
+                              </Badge>
                             </TableCell>
                             <TableCell>
-                              <Badge variant="destructive">
-                                <XCircle className="h-3 w-3 mr-1" />
-                                Overdue
-                              </Badge>
+                              {customer.lastPaymentDate ? (
+                                <span className="text-sm">
+                                  {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">No payments</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               <DropdownMenu>
@@ -928,25 +912,9 @@ export default function Payments() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem
-                                    onClick={() => handleSendBill(customer)}
-                                    disabled={generatingBill === customer.customer.id}
-                                  >
-                                    {generatingBill === customer.customer.id ? (
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    ) : (
-                                      <FileText className="h-4 w-4 mr-2" />
-                                    )}
-                                    {generatingBill === customer.customer.id ? 'Sending...' : 'Send Bill via WhatsApp'}
-                                  </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
                                     <CreditCard className="h-4 w-4 mr-2" />
-                                    Record Cash Payment
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem className="text-destructive">
-                                    <AlertTriangle className="h-4 w-4 mr-2" />
-                                    Send Reminder
+                                    Record Payment
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -960,73 +928,88 @@ export default function Payments() {
 
                 {filteredCustomers.length === 0 && (
                   <div className="text-center py-8">
-                    <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium">No overdue customers</h3>
-                    <p className="text-muted-foreground">All customers are up to date with their payments!</p>
+                    <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium">No customers found</h3>
+                    <p className="text-muted-foreground">Try adjusting your search or filter criteria.</p>
                   </div>
                 )}
               </TabsContent>
 
-              {/* Payment History Tab */}
-              <TabsContent value="history" className="space-y-4">
+              {/* Month 3 Tab */}
+              <TabsContent value="month-3" className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-medium">{getMonthName(3)} Bills</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Payment status for {getMonthName(3)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold">₹{totalMonth3.toLocaleString()}</div>
+                    <div className="text-sm text-muted-foreground">{filteredCustomers.length} customers</div>
+                  </div>
+                </div>
+
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Payment Method</TableHead>
-                        <TableHead>Payment Date</TableHead>
+                        <TableHead>Month Bill</TableHead>
+                        <TableHead>Amount Paid</TableHead>
+                        <TableHead>Remaining Due</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Notes</TableHead>
+                        <TableHead>Last Payment</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredPayments.map((payment) => {
-                        const customer = allCustomers.find(c => c.id === payment.customerId);
+                      {filteredCustomers.map((customer) => {
+                        const monthDue = customer.month3Due || 0;
+                        const monthStatus = (customer.month3Paid || 0) >= (customer.month3Amount || 0) ? 'paid' :
+                                            (customer.month3Paid || 0) > 0 ? 'partial' : 'pending';
+
                         return (
-                          <TableRow key={payment.id}>
+                          <TableRow key={customer.customer.id}>
                             <TableCell>
                               <div>
-                                <div className="font-medium">{customer?.name || `Customer ${payment.customerId}`}</div>
-                                <div className="text-sm text-muted-foreground">{customer?.phone}</div>
+                                <div className="font-medium">{customer.customer.name}</div>
+                                <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className={`font-medium ${payment.amount < 0 ? 'text-destructive' : ''}`}>
-                                {payment.amount < 0 ? '-₹' : '₹'}{Math.abs(payment.amount).toLocaleString()}
-                              </div>
+                              <div className="font-medium">₹{(customer.month3Amount || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-1 text-sm">
-                                {payment.paymentMethod === "UPI" && <Smartphone className="h-3 w-3" />}
-                                {payment.paymentMethod === "Cash" && <IndianRupee className="h-3 w-3" />}
-                                {payment.paymentMethod === "Bank Transfer" && <CreditCard className="h-3 w-3" />}
-                                {payment.paymentMethod}
-                              </div>
+                              <div className="font-medium text-green-600">₹{(customer.month3Paid || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                {payment.paidDate ? format(new Date(payment.paidDate), "MMM dd, yyyy") : "Not paid"}
-                              </div>
+                              {monthDue > 0 ? (
+                                <span className="text-warning font-medium">
+                                  ₹{monthDue.toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-green-600">Paid</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge variant={
-                                payment.status === "paid" ? "default" :
-                                payment.status === "partial" ? "secondary" :
-                                payment.status === "overdue" ? "destructive" : "outline"
+                                monthStatus === "paid" ? "default" :
+                                monthStatus === "partial" ? "secondary" : "outline"
                               }>
-                                {payment.status === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
-                                {payment.status === "pending" && <Clock className="h-3 w-3 mr-1" />}
-                                {payment.status === "overdue" && <AlertTriangle className="h-3 w-3 mr-1" />}
-                                {payment.status}
+                                {monthStatus === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
+                                {monthStatus === "partial" && <AlertTriangle className="h-3 w-3 mr-1" />}
+                                {monthStatus.charAt(0).toUpperCase() + monthStatus.slice(1)}
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm text-muted-foreground max-w-32 truncate">
-                                {payment.notes || "-"}
-                              </div>
+                              {customer.lastPaymentDate ? (
+                                <span className="text-sm">
+                                  {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">No payments</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               <DropdownMenu>
@@ -1036,14 +1019,10 @@ export default function Payments() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem>
-                                    <Receipt className="h-4 w-4 mr-2" />
-                                    View Receipt
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem>
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Edit Payment
+                                  <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
+                                  <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
+                                    <CreditCard className="h-4 w-4 mr-2" />
+                                    Record Payment
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1055,30 +1034,28 @@ export default function Payments() {
                   </Table>
                 </div>
 
-                {filteredPayments.length === 0 && (
+                {filteredCustomers.length === 0 && (
                   <div className="text-center py-8">
-                    <Receipt className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-medium">No payments found</h3>
+                    <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium">No customers found</h3>
                     <p className="text-muted-foreground">Try adjusting your search or filter criteria.</p>
                   </div>
                 )}
               </TabsContent>
+
             </Tabs>
           </CardContent>
         </Card>
 
         {/* Payment Recording Dialog */}
-        <Dialog open={isPaymentDialogOpen} onOpenChange={(open) => {
-          setIsPaymentDialogOpen(open);
-          if (!open) setIsLastMonthPayment(false);
-        }}>
+        <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                Record Cash Payment {isLastMonthPayment ? '- Last Month' : '- Current Month'}
+                Record Cash Payment
               </DialogTitle>
               <DialogDescription>
-                Record a cash payment received from {selectedCustomer?.customer.name} for {isLastMonthPayment ? format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "MMMM yyyy") : format(new Date(), "MMMM yyyy")}. Online payments are automatically updated.
+                Record a cash payment received from {selectedCustomer?.customer.name}. Online payments are automatically updated.
               </DialogDescription>
             </DialogHeader>
 
@@ -1086,37 +1063,22 @@ export default function Payments() {
               <div className="space-y-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <div className="space-y-2">
-                    {isLastMonthPayment ? (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span>Last Month Bill:</span>
-                          <span>₹{(selectedCustomer.lastMonthAmount || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span>Already Paid:</span>
-                          <span className="text-green-600">₹{(selectedCustomer.lastMonthPaid || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between font-medium border-t pt-2">
-                          <span>Remaining Due:</span>
-                          <span className="text-warning">₹{Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0)).toLocaleString()}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span>Current Month Amount:</span>
-                          <span>₹{(selectedCustomer.currentMonthAmount || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span>Pending Dues:</span>
-                          <span>₹{(selectedCustomer.pendingDues || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between font-medium border-t pt-2">
-                          <span>Total Due:</span>
-                          <span>₹{(selectedCustomer.totalDue || 0).toLocaleString()}</span>
-                        </div>
-                      </>
-                    )}
+                    <div className="flex justify-between text-sm">
+                      <span>Current Month Amount:</span>
+                      <span>₹{(selectedCustomer.currentMonthAmount || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Previous 3 Months:</span>
+                      <span>₹{((selectedCustomer.month1Amount || 0) + (selectedCustomer.month2Amount || 0) + (selectedCustomer.month3Amount || 0)).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Older Dues:</span>
+                      <span>₹{(selectedCustomer.olderDues || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between font-medium border-t pt-2">
+                      <span>Total Due:</span>
+                      <span>₹{(selectedCustomer.totalDue || 0).toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -1164,43 +1126,50 @@ export default function Payments() {
                       <div className="p-3 bg-muted/30 border rounded-lg">
                         <h4 className="font-medium text-sm mb-2">Payment Allocation Preview</h4>
                         {(() => {
-                          const totalDue = isLastMonthPayment
-                            ? Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0))
-                            : (selectedCustomer.totalDue || 0);
+                          const totalDue = selectedCustomer.totalDue || 0;
 
                           let remaining = newPayment.amount;
                           const allocation = {
                             olderDues: 0,
-                            lastMonth: 0,
+                            month3: 0,
+                            month2: 0,
+                            month1: 0,
                             currentMonth: 0,
                             credit: 0
                           };
 
-                          if (!isLastMonthPayment) {
-                            // Allocate to older dues first
-                            if (remaining > 0 && (selectedCustomer.pendingDues || 0) > 0) {
-                              allocation.olderDues = Math.min(remaining, selectedCustomer.pendingDues || 0);
-                              remaining -= allocation.olderDues;
-                            }
-
-                            // Then last month
-                            if (remaining > 0 && (selectedCustomer.lastMonthDue || 0) > 0) {
-                              allocation.lastMonth = Math.min(remaining, selectedCustomer.lastMonthDue || 0);
-                              remaining -= allocation.lastMonth;
-                            }
-
-                            // Then current month
-                            if (remaining > 0 && (selectedCustomer.currentMonthDue || 0) > 0) {
-                              allocation.currentMonth = Math.min(remaining, selectedCustomer.currentMonthDue || 0);
-                              remaining -= allocation.currentMonth;
-                            }
-                          } else {
-                            // For last month payments, allocate directly to last month
-                            allocation.lastMonth = Math.min(remaining, Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0)));
-                            remaining -= allocation.lastMonth;
+                          // Allocate payment (oldest first)
+                          // 1. Older dues
+                          if (remaining > 0 && (selectedCustomer.olderDues || 0) > 0) {
+                            allocation.olderDues = Math.min(remaining, selectedCustomer.olderDues || 0);
+                            remaining -= allocation.olderDues;
                           }
 
-                          // Any remaining becomes credit
+                          // 2. Month 3 (3 months ago)
+                          if (remaining > 0 && (selectedCustomer.month3Due || 0) > 0) {
+                            allocation.month3 = Math.min(remaining, selectedCustomer.month3Due || 0);
+                            remaining -= allocation.month3;
+                          }
+
+                          // 3. Month 2 (2 months ago)
+                          if (remaining > 0 && (selectedCustomer.month2Due || 0) > 0) {
+                            allocation.month2 = Math.min(remaining, selectedCustomer.month2Due || 0);
+                            remaining -= allocation.month2;
+                          }
+
+                          // 4. Month 1 (last month)
+                          if (remaining > 0 && (selectedCustomer.month1Due || 0) > 0) {
+                            allocation.month1 = Math.min(remaining, selectedCustomer.month1Due || 0);
+                            remaining -= allocation.month1;
+                          }
+
+                          // 5. Current month
+                          if (remaining > 0 && (selectedCustomer.currentMonthDue || 0) > 0) {
+                            allocation.currentMonth = Math.min(remaining, selectedCustomer.currentMonthDue || 0);
+                            remaining -= allocation.currentMonth;
+                          }
+
+                          // 6. Any remaining becomes credit
                           if (remaining > 0) {
                             allocation.credit = remaining;
                           }
@@ -1213,10 +1182,22 @@ export default function Payments() {
                                   <span className="font-medium">₹{allocation.olderDues.toLocaleString()}</span>
                                 </div>
                               )}
-                              {allocation.lastMonth > 0 && (
+                              {allocation.month3 > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Applied to 3 months ago:</span>
+                                  <span className="font-medium">₹{allocation.month3.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {allocation.month2 > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Applied to 2 months ago:</span>
+                                  <span className="font-medium">₹{allocation.month2.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {allocation.month1 > 0 && (
                                 <div className="flex justify-between">
                                   <span>Applied to last month:</span>
-                                  <span className="font-medium">₹{allocation.lastMonth.toLocaleString()}</span>
+                                  <span className="font-medium">₹{allocation.month1.toLocaleString()}</span>
                                 </div>
                               )}
                               {allocation.currentMonth > 0 && (
@@ -1246,9 +1227,7 @@ export default function Payments() {
 
                       {/* Payment Status Indicator */}
                       {(() => {
-                        const totalDue = isLastMonthPayment
-                          ? Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0))
-                          : (selectedCustomer.totalDue || 0);
+                        const totalDue = selectedCustomer.totalDue || 0;
 
                         if (newPayment.amount > totalDue) {
                           return (
@@ -1294,15 +1273,12 @@ export default function Payments() {
                 </div>
 
                 <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => {
-                    setIsPaymentDialogOpen(false);
-                    setIsLastMonthPayment(false);
-                  }}>
+                  <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
                     Cancel
                   </Button>
                   <Button onClick={handleRecordPayment} disabled={submitting || newPayment.amount <= 0}>
                     {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    {isLastMonthPayment ? 'Record Last Month Payment' : 'Record Cash Payment'}
+                    Record Cash Payment
                   </Button>
                 </div>
               </div>

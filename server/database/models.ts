@@ -720,8 +720,14 @@ class Database {
     if (allocation.olderDues > 0) {
       notes.push(`₹${allocation.olderDues} applied to older dues`);
     }
-    if (allocation.lastMonth > 0) {
-      notes.push(`₹${allocation.lastMonth} applied to last month`);
+    if (allocation.month3 > 0) {
+      notes.push(`₹${allocation.month3} applied to 3 months ago`);
+    }
+    if (allocation.month2 > 0) {
+      notes.push(`₹${allocation.month2} applied to 2 months ago`);
+    }
+    if (allocation.month1 > 0) {
+      notes.push(`₹${allocation.month1} applied to last month`);
     }
     if (allocation.currentMonth > 0) {
       notes.push(`₹${allocation.currentMonth} applied to current month`);
