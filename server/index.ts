@@ -30,7 +30,8 @@ import {
   getWorkerPerformance,
   getWorkerStats,
   assignCustomersToWorker,
-  getWorkerCustomers
+  getWorkerCustomers,
+  getWorkerDeliveryReport
 } from "./routes/workers";
 
 // Payment routes
@@ -122,6 +123,7 @@ export function createServer() {
   app.get("/api/workers/stats", getWorkerStats);
   app.post("/api/workers/:id/assign", assignCustomersToWorker);
   app.get("/api/workers/:id/customers", getWorkerCustomers);
+  app.get("/api/workers/:id/delivery-report", getWorkerDeliveryReport);
 
   // Payment routes
   app.get("/api/payments", getPayments);

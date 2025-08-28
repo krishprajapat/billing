@@ -788,7 +788,7 @@ export default function Customers() {
               <IndianRupee className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-warning">��{totalPendingDues.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-warning">₹{totalPendingDues.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">
                 Needs collection
               </p>

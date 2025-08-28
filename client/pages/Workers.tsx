@@ -41,9 +41,11 @@ import {
   UserCheck,
   Loader2,
   AlertCircle,
+  MessageSquare,
 } from "lucide-react";
 import { workerApi, customerApi, areaApi, ApiError } from "@/lib/api-client";
 import { Worker, CreateWorkerRequest, UpdateWorkerRequest, Customer, Area } from "../../shared/api";
+import { PDFDeliveryReportGenerator, shareDeliveryReportViaWhatsApp, BusinessInfo, DeliveryReportData } from "@/lib/pdf-generator";
 
 export default function Workers() {
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -75,6 +77,7 @@ export default function Workers() {
   const [submitting, setSubmitting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
+  const [generatingReport, setGeneratingReport] = useState<number | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -283,18 +286,57 @@ export default function Workers() {
   const handleUnassignCustomer = async (customerId: number) => {
     try {
       await customerApi.update(customerId, { workerId: 0 });
-      
+
       // Refresh worker customers
       if (selectedWorker) {
         const updatedWorkerCustomers = await workerApi.getCustomers(selectedWorker.id);
         setWorkerCustomers(updatedWorkerCustomers);
-        
+
         // Refresh all data to update stats
         await fetchData();
       }
     } catch (err) {
       console.error('Failed to unassign customer:', err);
       setError(err instanceof ApiError ? err.message : 'Failed to unassign customer');
+    }
+  };
+
+  const handleSendDeliveryReport = async (worker: Worker) => {
+    try {
+      setGeneratingReport(worker.id);
+
+      // Get today's delivery report data
+      const today = new Date().toISOString().split('T')[0];
+      const reportData = await workerApi.getDeliveryReport(worker.id, today);
+
+      // Business information (this would typically come from settings)
+      const businessInfo: BusinessInfo = {
+        name: "MilkFlow Delivery Service",
+        address: "123 Main Street, City, State - 123456",
+        phone: "+91 98765 43210",
+        email: "contact@milkflow.com",
+        gst: "29XXXXX1234X1ZX"
+      };
+
+      // Generate PDF
+      const pdfGenerator = new PDFDeliveryReportGenerator();
+      const pdfBlob = await pdfGenerator.generateDeliveryReport(reportData, businessInfo);
+
+      // Share via WhatsApp
+      shareDeliveryReportViaWhatsApp(
+        worker.phone,
+        pdfBlob,
+        worker.name,
+        reportData.areaName,
+        reportData.totalCustomers,
+        new Date().toLocaleDateString('en-IN')
+      );
+
+    } catch (err) {
+      console.error('Failed to generate delivery report:', err);
+      setError(err instanceof ApiError ? err.message : 'Failed to generate delivery report');
+    } finally {
+      setGeneratingReport(null);
     }
   };
 
@@ -848,6 +890,17 @@ export default function Workers() {
                             <DropdownMenuItem onClick={() => handleManageCustomers(worker)}>
                               <Users className="h-4 w-4 mr-2" />
                               Manage Customers
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleSendDeliveryReport(worker)}
+                              disabled={generatingReport === worker.id}
+                            >
+                              {generatingReport === worker.id ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <MessageSquare className="h-4 w-4 mr-2" />
+                              )}
+                              {generatingReport === worker.id ? 'Generating Report...' : 'Send Delivery Report'}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleToggleStatus(worker)}>
                               {worker.status === "active" ? (

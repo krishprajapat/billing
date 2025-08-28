@@ -156,6 +156,11 @@ export const workerApi = {
 
   getCustomers: (id: number): Promise<Customer[]> =>
     apiRequest<Customer[]>(`/workers/${id}/customers`),
+
+  getDeliveryReport: (id: number, date?: string): Promise<any> => {
+    const params = date ? `?date=${date}` : '';
+    return apiRequest<any>(`/workers/${id}/delivery-report${params}`);
+  },
 };
 
 // Payment API

@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
-import { Customer } from '@shared/api';
+import { Customer, Worker } from '@shared/api';
 
 export interface BillData {
   customer: Customer;
@@ -24,6 +24,27 @@ export interface BusinessInfo {
   phone: string;
   email: string;
   gst?: string;
+}
+
+export interface DeliveryReportData {
+  worker: Worker;
+  areaName: string;
+  reportDate: string;
+  customers: Array<{
+    id: number;
+    name: string;
+    address: string;
+    phone: string;
+    dailyQuantity: number;
+    ratePerLiter: number;
+    deliveredQuantity?: number;
+    deliveryStatus: 'delivered' | 'not_delivered' | 'pending';
+    notes?: string;
+  }>;
+  totalCustomers: number;
+  totalQuantityScheduled: number;
+  totalQuantityDelivered: number;
+  totalAmount: number;
 }
 
 export class PDFBillGenerator {
@@ -334,4 +355,428 @@ export async function generateRazorpayPaymentLink(amount: number, customerName: 
     // Fallback to a mock link if API fails
     return `https://rzp.io/l/${billNumber.toLowerCase()}`;
   }
+}
+
+export class PDFDeliveryReportGenerator {
+  private pdf: jsPDF;
+  private pageHeight: number;
+  private pageWidth: number;
+  private margin: number;
+  private currentY: number;
+
+  constructor() {
+    this.pdf = new jsPDF();
+    this.pageHeight = this.pdf.internal.pageSize.height;
+    this.pageWidth = this.pdf.internal.pageSize.width;
+    this.margin = 20;
+    this.currentY = this.margin;
+  }
+
+  // Utility function for smart text truncation
+  private truncateText(text: string, maxLength: number, preserveWords: boolean = true): string {
+    if (text.length <= maxLength) return text;
+
+    if (preserveWords) {
+      const words = text.split(' ');
+      let result = '';
+      for (const word of words) {
+        if ((result + word).length > maxLength - 3) {
+          return result.trim() + '...';
+        }
+        result += (result ? ' ' : '') + word;
+      }
+      return result;
+    }
+
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
+  // Utility function for text wrapping
+  private wrapText(text: string, maxWidth: number, fontSize: number = 10): string[] {
+    this.pdf.setFontSize(fontSize);
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      const testLine = currentLine + (currentLine ? ' ' : '') + word;
+      const textWidth = this.pdf.getTextWidth(testLine);
+
+      if (textWidth > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines;
+  }
+
+  async generateDeliveryReport(reportData: DeliveryReportData, businessInfo: BusinessInfo): Promise<Blob> {
+    // Add header
+    this.addHeader(businessInfo);
+
+    // Add report details
+    this.addReportDetails(reportData);
+
+    // Add worker details
+    this.addWorkerDetails(reportData.worker, reportData.areaName);
+
+    // Add delivery summary
+    this.addDeliverySummary(reportData);
+
+    // Add customer list table
+    this.addCustomerTable(reportData);
+
+    // Add footer
+    this.addFooter();
+
+    return this.pdf.output('blob');
+  }
+
+  private addHeader(businessInfo: BusinessInfo) {
+    // Header background
+    this.pdf.setFillColor(52, 73, 94);
+    this.pdf.rect(0, 0, this.pageWidth, 50, 'F');
+
+    // Company name - white text on dark background
+    this.pdf.setTextColor(255, 255, 255);
+    this.pdf.setFontSize(18);
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text(businessInfo.name, this.margin, this.currentY + 8);
+
+    // Report title on the right
+    this.pdf.setFontSize(14);
+    this.pdf.text('DAILY DELIVERY REPORT', this.pageWidth - this.margin, this.currentY + 8, { align: 'right' });
+
+    this.currentY += 18;
+
+    // Company details in smaller text
+    this.pdf.setFontSize(9);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(businessInfo.address, this.margin, this.currentY);
+    this.currentY += 4;
+    this.pdf.text(`Phone: ${businessInfo.phone} | Email: ${businessInfo.email}`, this.margin, this.currentY);
+
+    // Reset text color to black
+    this.pdf.setTextColor(0, 0, 0);
+    this.currentY = 65; // Move below the header area
+  }
+
+  private addReportDetails(reportData: DeliveryReportData) {
+    const rightX = this.pageWidth - this.margin;
+
+    this.pdf.setFontSize(10);
+    this.pdf.setFont('helvetica', 'normal');
+
+    // Report date and time
+    this.pdf.text(`Report Date: ${new Date(reportData.reportDate).toLocaleDateString('en-IN')}`, this.margin, this.currentY);
+    this.pdf.text(`Generated: ${new Date().toLocaleString('en-IN')}`, rightX - 80, this.currentY);
+    this.currentY += 15;
+  }
+
+  private addWorkerDetails(worker: Worker, areaName: string) {
+    // Worker details box
+    const boxWidth = (this.pageWidth - (2 * this.margin)) / 2;
+    const boxHeight = 35;
+
+    this.pdf.setFillColor(248, 249, 250);
+    this.pdf.rect(this.margin, this.currentY, boxWidth, boxHeight, 'F');
+    this.pdf.setDrawColor(52, 73, 94);
+    this.pdf.setLineWidth(0.3);
+    this.pdf.rect(this.margin, this.currentY, boxWidth, boxHeight);
+
+    // Title bar
+    this.pdf.setFillColor(52, 73, 94);
+    this.pdf.rect(this.margin, this.currentY, boxWidth, 10, 'F');
+
+    this.pdf.setTextColor(255, 255, 255);
+    this.pdf.setFontSize(9);
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('ASSIGNED WORKER', this.margin + 3, this.currentY + 7);
+
+    // Worker details
+    this.pdf.setTextColor(0, 0, 0);
+    this.pdf.setFontSize(9);
+    this.pdf.setFont('helvetica', 'normal');
+
+    const detailsY = this.currentY + 15;
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Name:', this.margin + 3, detailsY);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(worker.name, this.margin + 18, detailsY);
+
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Phone:', this.margin + 3, detailsY + 6);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(worker.phone, this.margin + 20, detailsY + 6);
+
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Area:', this.margin + 3, detailsY + 12);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(areaName, this.margin + 17, detailsY + 12);
+
+    this.currentY += boxHeight + 10;
+  }
+
+  private addDeliverySummary(reportData: DeliveryReportData) {
+    // Summary box with gradient-like effect
+    const summaryStartY = this.currentY;
+    const boxWidth = this.pageWidth - (2 * this.margin);
+    const boxHeight = 40;
+
+    // Background with subtle color
+    this.pdf.setFillColor(240, 248, 255);
+    this.pdf.rect(this.margin, summaryStartY, boxWidth, boxHeight, 'F');
+
+    // Professional border
+    this.pdf.setDrawColor(52, 73, 94);
+    this.pdf.setLineWidth(0.5);
+    this.pdf.rect(this.margin, summaryStartY, boxWidth, boxHeight);
+
+    // Title with accent background
+    this.pdf.setFillColor(52, 73, 94);
+    this.pdf.rect(this.margin, summaryStartY, boxWidth, 12, 'F');
+
+    this.pdf.setTextColor(255, 255, 255);
+    this.pdf.setFontSize(10);
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('DELIVERY SUMMARY', this.margin + 5, summaryStartY + 8);
+
+    // Reset text color and add content
+    this.pdf.setTextColor(0, 0, 0);
+    this.pdf.setFontSize(9);
+    this.pdf.setFont('helvetica', 'normal');
+
+    const col1X = this.margin + 8;
+    const col2X = this.margin + 105;
+    const contentY = summaryStartY + 20;
+
+    // Left column
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Total Customers:', col1X, contentY);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(`${reportData.totalCustomers}`, col1X + 35, contentY);
+
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Delivered Qty:', col1X, contentY + 8);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(`${reportData.totalQuantityDelivered}L`, col1X + 35, contentY + 8);
+
+    // Right column
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Scheduled Qty:', col2X, contentY);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(`${reportData.totalQuantityScheduled}L`, col2X + 35, contentY);
+
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.text('Total Amount:', col2X, contentY + 8);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text(`₹${reportData.totalAmount.toLocaleString()}`, col2X + 35, contentY + 8);
+
+    this.currentY = summaryStartY + boxHeight + 15;
+  }
+
+  private addCustomerTable(reportData: DeliveryReportData) {
+    const startY = this.currentY;
+    const tableStartX = this.margin;
+    const tableWidth = this.pageWidth - (2 * this.margin);
+    // Redistributed column widths without Status: Name, Phone, Address, Qty, Amount
+    const colWidths = [40, 35, 50, 20, 25]; // Total: 170 (Phone gets more space, Address gets more space)
+    const rowHeight = 14; // Increased row height for better readability
+
+    // Table header with better styling
+    this.pdf.setFillColor(52, 73, 94); // Professional dark blue
+    this.pdf.rect(tableStartX, startY, tableWidth, rowHeight, 'F');
+
+    this.pdf.setFontSize(8);
+    this.pdf.setFont('helvetica', 'bold');
+    this.pdf.setTextColor(255, 255, 255); // White text on dark background
+
+    let currentX = tableStartX;
+    this.pdf.text('Customer Name', currentX + 3, startY + 9);
+    currentX += colWidths[0];
+    this.pdf.text('Phone Number', currentX + 3, startY + 9);
+    currentX += colWidths[1];
+    this.pdf.text('Address', currentX + 3, startY + 9);
+    currentX += colWidths[2];
+    this.pdf.text('Qty (L)', currentX + 3, startY + 9);
+    currentX += colWidths[3];
+    this.pdf.text('Amount (₹)', currentX + 3, startY + 9);
+
+    this.currentY = startY + rowHeight + 2;
+
+    // Reset text color for table content
+    this.pdf.setTextColor(0, 0, 0);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.setFontSize(8);
+
+    // Table rows with improved formatting
+    reportData.customers.forEach((customer, index) => {
+      if (this.currentY > this.pageHeight - 60) {
+        this.pdf.addPage();
+        this.currentY = this.margin;
+      }
+
+      const rowY = this.currentY;
+      currentX = tableStartX;
+
+      // Alternating row colors with better contrast
+      if (index % 2 === 0) {
+        this.pdf.setFillColor(248, 249, 250);
+        this.pdf.rect(tableStartX, rowY, tableWidth, rowHeight, 'F');
+      }
+
+      // Customer name - smart truncation
+      let customerName = customer.name;
+      if (customerName.length > 20) {
+        const parts = customerName.split(' ');
+        if (parts.length > 1) {
+          customerName = parts[0] + ' ' + parts[1].substring(0, 1) + '.';
+          if (customerName.length > 20) {
+            customerName = customerName.substring(0, 17) + '...';
+          }
+        } else {
+          customerName = customerName.substring(0, 17) + '...';
+        }
+      }
+      this.pdf.text(customerName, currentX + 3, rowY + 9);
+      currentX += colWidths[0];
+
+      // Phone - show full number without truncation
+      let phone = customer.phone;
+      // Keep the full phone number, just clean formatting
+      if (phone.startsWith('+91')) {
+        phone = '+91 ' + phone.substring(3);
+      } else if (phone.length === 10) {
+        // Add country code if missing
+        phone = '+91 ' + phone;
+      }
+      // Format as: +91 98765 43210
+      if (phone.length > 13) {
+        const cleaned = phone.replace(/^\+91\s*/, '');
+        if (cleaned.length === 10) {
+          phone = `+91 ${cleaned.substring(0, 5)} ${cleaned.substring(5)}`;
+        }
+      }
+      this.pdf.text(phone, currentX + 3, rowY + 9);
+      currentX += colWidths[1];
+
+      // Address - smart truncation with word boundaries
+      let address = customer.address;
+      if (address.length > 40) {
+        const words = address.split(' ');
+        let truncatedAddress = '';
+        for (const word of words) {
+          if ((truncatedAddress + word).length > 37) {
+            truncatedAddress += '...';
+            break;
+          }
+          truncatedAddress += (truncatedAddress ? ' ' : '') + word;
+        }
+        address = truncatedAddress;
+      }
+      this.pdf.text(address, currentX + 3, rowY + 9);
+      currentX += colWidths[2];
+
+      // Quantity - centered alignment
+      const quantity = customer.deliveredQuantity || customer.dailyQuantity;
+      const qtyText = quantity.toString() + 'L';
+      this.pdf.text(qtyText, currentX + (colWidths[3] / 2), rowY + 9, { align: 'center' });
+      currentX += colWidths[3];
+
+      // Amount - right aligned with proper formatting
+      const amount = quantity * customer.ratePerLiter;
+      const amountText = `₹${amount}`;
+      this.pdf.text(amountText, currentX + colWidths[4] - 3, rowY + 9, { align: 'right' });
+
+      this.currentY += rowHeight;
+    });
+
+    // Professional table border
+    this.pdf.setDrawColor(52, 73, 94);
+    this.pdf.setLineWidth(0.5);
+
+    // Outer border
+    this.pdf.rect(tableStartX, startY, tableWidth, this.currentY - startY);
+
+    // Header separator
+    this.pdf.line(tableStartX, startY + rowHeight, tableStartX + tableWidth, startY + rowHeight);
+
+    // Vertical lines for columns
+    currentX = tableStartX;
+    for (let i = 0; i < colWidths.length - 1; i++) {
+      currentX += colWidths[i];
+      this.pdf.line(currentX, startY, currentX, this.currentY);
+    }
+
+    // Horizontal lines for better readability
+    this.pdf.setLineWidth(0.2);
+    this.pdf.setDrawColor(200, 200, 200);
+    for (let i = 1; i < reportData.customers.length; i++) {
+      const lineY = startY + rowHeight + (i * rowHeight);
+      if (lineY < this.currentY) {
+        this.pdf.line(tableStartX, lineY, tableStartX + tableWidth, lineY);
+      }
+    }
+
+    this.currentY += 15;
+  }
+
+  private addFooter() {
+    const footerY = this.pageHeight - 30;
+
+    this.pdf.setFontSize(9);
+    this.pdf.setFont('helvetica', 'normal');
+    this.pdf.text('Instructions:', this.margin, footerY);
+    this.pdf.text('• Mark deliveries as completed after each delivery', this.margin, footerY + 7);
+    this.pdf.text('• Contact customers if any issues arise', this.margin, footerY + 14);
+    this.pdf.text('• Report any customer requests or complaints', this.margin, footerY + 21);
+
+    // Add generation timestamp
+    this.pdf.setFontSize(8);
+    this.pdf.setFont('helvetica', 'italic');
+    this.pdf.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, this.pageWidth - this.margin - 80, footerY + 21);
+  }
+}
+
+// Utility function to share delivery report via WhatsApp
+export function shareDeliveryReportViaWhatsApp(
+  phoneNumber: string,
+  reportBlob: Blob,
+  workerName: string,
+  areaName: string,
+  totalCustomers: number,
+  reportDate: string
+) {
+  // Create file URL for sharing
+  const fileUrl = URL.createObjectURL(reportBlob);
+
+  // WhatsApp message
+  const message = `Hi ${workerName},\n\nYour delivery report for ${areaName} is ready.\n\nDate: ${reportDate}\nTotal Customers: ${totalCustomers}\n\nPlease check the attached report for today's delivery details.\n\nHave a great delivery day!`;
+
+  // Format phone number for WhatsApp (remove +91 if present)
+  const formattedPhone = phoneNumber.replace(/^\+91/, '').replace(/\D/g, '');
+
+  // Open WhatsApp Web with pre-filled message
+  const whatsappUrl = `https://wa.me/91${formattedPhone}?text=${encodeURIComponent(message)}`;
+
+  // Open WhatsApp in new tab
+  window.open(whatsappUrl, '_blank');
+
+  // Download the report for manual sharing
+  const link = document.createElement('a');
+  link.href = fileUrl;
+  link.download = `delivery_report_${workerName.replace(/\s+/g, '_')}_${reportDate.replace(/\//g, '-')}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  // Clean up
+  setTimeout(() => URL.revokeObjectURL(fileUrl), 1000);
 }

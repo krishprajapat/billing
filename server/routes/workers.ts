@@ -256,3 +256,75 @@ export const getWorkerCustomers: RequestHandler = (req, res) => {
     res.status(500).json(response);
   }
 };
+
+export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
+  try {
+    const workerId = parseInt(req.params.id);
+    const reportDate = req.query.date?.toString() || new Date().toISOString().split('T')[0];
+
+    const worker = db.getWorkerById(workerId);
+    if (!worker) {
+      const response: ApiResponse = {
+        success: false,
+        error: "Worker not found",
+      };
+      return res.status(404).json(response);
+    }
+
+    // Get all customers assigned to this worker
+    const customers = db.getCustomers({ worker: workerId.toString(), status: 'active' });
+    const area = db.getAreaById(worker.areaId);
+
+    // Get today's delivery data
+    const deliveries = db.getDailyDeliveries({ date: reportDate, workerId });
+
+    // Transform customer data for delivery report
+    const customerDeliveryData = customers.map(customer => {
+      const delivery = deliveries.find(d => d.customerId === customer.id);
+
+      return {
+        id: customer.id,
+        name: customer.name,
+        address: customer.address,
+        phone: customer.phone,
+        dailyQuantity: customer.dailyQuantity,
+        ratePerLiter: customer.ratePerLiter,
+        deliveredQuantity: delivery?.quantityDelivered || 0,
+        deliveryStatus: delivery ?
+          (delivery.quantityDelivered > 0 ? 'delivered' : 'not_delivered') :
+          'pending',
+        notes: delivery?.notes || '',
+      };
+    });
+
+    // Calculate totals
+    const totalCustomers = customers.length;
+    const totalQuantityScheduled = customers.reduce((sum, c) => sum + c.dailyQuantity, 0);
+    const totalQuantityDelivered = deliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
+    const totalAmount = deliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
+
+    const reportData = {
+      worker,
+      areaName: area?.name || worker.areaName || 'Unknown Area',
+      reportDate,
+      customers: customerDeliveryData,
+      totalCustomers,
+      totalQuantityScheduled,
+      totalQuantityDelivered,
+      totalAmount,
+    };
+
+    const response: ApiResponse = {
+      success: true,
+      data: reportData,
+    };
+    res.json(response);
+  } catch (error) {
+    console.error('Error generating delivery report:', error);
+    const response: ApiResponse = {
+      success: false,
+      error: "Failed to generate delivery report",
+    };
+    res.status(500).json(response);
+  }
+};
