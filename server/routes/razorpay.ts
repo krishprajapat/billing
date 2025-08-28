@@ -214,10 +214,10 @@ export const handlePaymentCallback: RequestHandler = (req, res) => {
               year = paymentDate.getFullYear();
             }
 
-            const paymentRecord = db.createPayment({
+            const paymentResult = db.createPayment({
               customerId: customerId,
               amount: amountInRupees,
-              paymentMethod: 'UPI', // Razorpay payments are typically UPI/Card
+              paymentMethod: payment.method === 'card' ? 'Card' : 'UPI', // Detect actual payment method
               status: 'paid',
               month: month,
               year: year,
@@ -226,12 +226,23 @@ export const handlePaymentCallback: RequestHandler = (req, res) => {
               notes: `Online payment via Razorpay. Payment ID: ${payment.id}, Link ID: ${paymentLink.id}`,
             });
 
-            console.log('Payment record created:', {
-              paymentId: paymentRecord.id,
-              customerId: customerId,
-              amount: amountInRupees,
-              customer: customer.name
-            });
+            if (paymentResult.errors.length > 0) {
+              console.error('Error creating payment record:', paymentResult.errors);
+            } else {
+              console.log('Payment record created successfully:', {
+                paymentId: paymentResult.payment.id,
+                customerId: customerId,
+                amount: amountInRupees,
+                customer: customer.name,
+                remainingBalance: paymentResult.summary?.totalDue || 0,
+                warnings: paymentResult.warnings
+              });
+
+              // Log payment allocation details
+              if (paymentResult.payment.notes) {
+                console.log('Payment allocation:', paymentResult.payment.notes);
+              }
+            }
           } else {
             console.error('Customer not found for ID:', customerId);
           }

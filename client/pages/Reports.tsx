@@ -254,7 +254,7 @@ export default function Reports() {
               <IndianRupee className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">₹{(totalRevenue / 1000000).toFixed(2)}M</div>
+              <div className="text-2xl font-bold">₹{totalRevenue.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-success" />
                 <span className="text-success">+{revenueGrowth.toFixed(1)}%</span>
@@ -269,7 +269,7 @@ export default function Reports() {
               <Milk className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{(totalMilkSold / 1000).toFixed(1)}K L</div>
+              <div className="text-2xl font-bold">{totalMilkSold.toLocaleString()} L</div>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-success" />
                 <span className="text-success">+{milkGrowth.toFixed(1)}%</span>

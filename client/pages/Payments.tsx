@@ -155,15 +155,36 @@ export default function Payments() {
         paymentNotes = `${paymentNotes} [MONTH:${lastMonth}] [YEAR:${lastYear}]`.trim();
       }
 
-      const payment = await paymentApi.record({
+      const response = await paymentApi.record({
         ...newPayment,
         customerId: selectedCustomer.customer.id,
         notes: paymentNotes
       });
 
-      // Update customer's pending dues and refresh data
+      // Show success message with detailed information
+      if (response.success && response.data) {
+        const { remainingBalance } = response.data;
+
+        // Create success message
+        let successMessage = response.message || 'Payment recorded successfully';
+
+        // Show toast notification
+        if (remainingBalance > 0) {
+          // Partial payment
+          successMessage = `Payment of ₹${newPayment.amount.toLocaleString()} recorded. Remaining balance: ₹${remainingBalance.toLocaleString()}`;
+        } else {
+          // Full payment
+          successMessage = `Payment of ₹${newPayment.amount.toLocaleString()} recorded. Account is now settled!`;
+        }
+
+        // You could add a toast notification here if you have a toast system
+        console.log('Payment success:', successMessage);
+      }
+
+      // Refresh data to show updated balances
       await fetchData();
 
+      // Close dialog and reset form
       setIsPaymentDialogOpen(false);
       setSelectedCustomer(null);
       setIsLastMonthPayment(false);
@@ -173,9 +194,10 @@ export default function Payments() {
         paymentMethod: "Cash",
         paidDate: format(new Date(), "yyyy-MM-dd"),
       });
+
     } catch (err) {
       console.error('Failed to record payment:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to record payment');
+      setError(err instanceof ApiError ? err.message : 'Failed to record payment. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -395,12 +417,12 @@ export default function Payments() {
   });
 
   // Calculate summary statistics
-  const totalCurrentMonth = customers.reduce((sum, c) => sum + c.currentMonthAmount, 0);
-  const totalLastMonth = customers.reduce((sum, c) => sum + c.lastMonthAmount, 0);
-  const totalPendingDues = customers.reduce((sum, c) => sum + c.pendingDues, 0);
+  const totalCurrentMonth = customers.reduce((sum, c) => sum + (c.currentMonthAmount || 0), 0);
+  const totalLastMonth = customers.reduce((sum, c) => sum + (c.lastMonthAmount || 0), 0);
+  const totalPendingDues = customers.reduce((sum, c) => sum + (c.pendingDues || 0), 0);
   const paidCustomers = customers.filter(c => c.paymentStatus === 'paid').length;
-  const overdueCustomers = customers.filter(c => c.isOverdue && c.totalDue > 0).length;
-  const overdueAmount = customers.filter(c => c.isOverdue).reduce((sum, c) => sum + c.totalDue, 0);
+  const overdueCustomers = customers.filter(c => c.isOverdue && (c.totalDue || 0) > 0).length;
+  const overdueAmount = customers.filter(c => c.isOverdue).reduce((sum, c) => sum + (c.totalDue || 0), 0);
 
   const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
   const collectedRevenue = payments.filter(p => p.status === "paid").reduce((sum, p) => sum + p.amount, 0);
@@ -615,21 +637,21 @@ export default function Payments() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium">₹{customer.lastMonthAmount.toLocaleString()}</div>
+                            <div className="font-medium">₹{(customer.lastMonthAmount || 0).toLocaleString()}</div>
                             <div className="text-xs text-muted-foreground">
-                              Paid: ₹{customer.lastMonthPaid.toLocaleString()}
+                              Paid: ₹{(customer.lastMonthPaid || 0).toLocaleString()}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium">₹{customer.currentMonthAmount.toLocaleString()}</div>
+                            <div className="font-medium">₹{(customer.currentMonthAmount || 0).toLocaleString()}</div>
                             <div className="text-xs text-muted-foreground">
-                              Paid: ₹{customer.currentMonthPaid.toLocaleString()}
+                              Paid: ₹{(customer.currentMonthPaid || 0).toLocaleString()}
                             </div>
                           </TableCell>
                           <TableCell>
-                            {customer.pendingDues > 0 ? (
+                            {(customer.pendingDues || 0) > 0 ? (
                               <span className="text-warning font-medium">
-                                ₹{customer.pendingDues.toLocaleString()}
+                                ₹{(customer.pendingDues || 0).toLocaleString()}
                               </span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
@@ -637,7 +659,7 @@ export default function Payments() {
                           </TableCell>
                           <TableCell>
                             <div className="font-medium text-lg">
-                              ₹{customer.totalDue.toLocaleString()}
+                              ₹{(customer.totalDue || 0).toLocaleString()}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -733,7 +755,7 @@ export default function Payments() {
                     </TableHeader>
                     <TableBody>
                       {filteredCustomers.map((customer) => {
-                        const lastMonthDue = Math.max(0, customer.lastMonthAmount - customer.lastMonthPaid);
+                        const lastMonthDue = Math.max(0, (customer.lastMonthAmount || 0) - (customer.lastMonthPaid || 0));
                         const lastMonthStatus = customer.lastMonthPaid >= customer.lastMonthAmount ? 'paid' :
                                               customer.lastMonthPaid > 0 ? 'partial' : 'pending';
 
@@ -746,10 +768,10 @@ export default function Payments() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium">₹{customer.lastMonthAmount.toLocaleString()}</div>
+                              <div className="font-medium">₹{(customer.lastMonthAmount || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium text-green-600">₹{customer.lastMonthPaid.toLocaleString()}</div>
+                              <div className="font-medium text-green-600">₹{(customer.lastMonthPaid || 0).toLocaleString()}</div>
                             </TableCell>
                             <TableCell>
                               {lastMonthDue > 0 ? (
@@ -865,11 +887,11 @@ export default function Payments() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium text-destructive text-lg">
-                                ₹{customer.totalDue.toLocaleString()}
+                                ₹{(customer.totalDue || 0).toLocaleString()}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                Current: ₹{customer.currentMonthAmount.toLocaleString()} |
-                                Pending: ₹{customer.pendingDues.toLocaleString()}
+                                Current: ₹{(customer.currentMonthAmount || 0).toLocaleString()} |
+                                Pending: ₹{(customer.pendingDues || 0).toLocaleString()}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1068,30 +1090,30 @@ export default function Payments() {
                       <>
                         <div className="flex justify-between text-sm">
                           <span>Last Month Bill:</span>
-                          <span>₹{selectedCustomer.lastMonthAmount.toLocaleString()}</span>
+                          <span>₹{(selectedCustomer.lastMonthAmount || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Already Paid:</span>
-                          <span className="text-green-600">₹{selectedCustomer.lastMonthPaid.toLocaleString()}</span>
+                          <span className="text-green-600">₹{(selectedCustomer.lastMonthPaid || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between font-medium border-t pt-2">
                           <span>Remaining Due:</span>
-                          <span className="text-warning">₹{Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid).toLocaleString()}</span>
+                          <span className="text-warning">₹{Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0)).toLocaleString()}</span>
                         </div>
                       </>
                     ) : (
                       <>
                         <div className="flex justify-between text-sm">
                           <span>Current Month Amount:</span>
-                          <span>₹{selectedCustomer.currentMonthAmount.toLocaleString()}</span>
+                          <span>₹{(selectedCustomer.currentMonthAmount || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Pending Dues:</span>
-                          <span>₹{selectedCustomer.pendingDues.toLocaleString()}</span>
+                          <span>₹{(selectedCustomer.pendingDues || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between font-medium border-t pt-2">
                           <span>Total Due:</span>
-                          <span>₹{selectedCustomer.totalDue.toLocaleString()}</span>
+                          <span>₹{(selectedCustomer.totalDue || 0).toLocaleString()}</span>
                         </div>
                       </>
                     )}
@@ -1136,32 +1158,138 @@ export default function Payments() {
                     onChange={(e) => setNewPayment({...newPayment, notes: e.target.value})}
                     placeholder="Additional notes..."
                   />
-                  {newPayment.amount > 0 && (
-                    isLastMonthPayment ? (
-                      newPayment.amount < Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid) && (
-                        <div className="p-3 bg-info/10 border border-info/20 rounded-lg">
-                          <div className="flex items-center gap-2 text-info">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="font-medium">Partial Payment</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Remaining last month balance: ₹{(Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid) - newPayment.amount).toLocaleString()}
-                          </p>
-                        </div>
-                      )
-                    ) : (
-                      newPayment.amount < selectedCustomer?.totalDue && (
-                        <div className="p-3 bg-info/10 border border-info/20 rounded-lg">
-                          <div className="flex items-center gap-2 text-info">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="font-medium">Partial Payment</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Remaining balance: ₹{((selectedCustomer?.totalDue || 0) - newPayment.amount).toLocaleString()}
-                          </p>
-                        </div>
-                      )
-                    )
+                  {newPayment.amount > 0 && selectedCustomer && (
+                    <div className="space-y-3">
+                      {/* Payment Allocation Preview */}
+                      <div className="p-3 bg-muted/30 border rounded-lg">
+                        <h4 className="font-medium text-sm mb-2">Payment Allocation Preview</h4>
+                        {(() => {
+                          const totalDue = isLastMonthPayment
+                            ? Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0))
+                            : (selectedCustomer.totalDue || 0);
+
+                          let remaining = newPayment.amount;
+                          const allocation = {
+                            olderDues: 0,
+                            lastMonth: 0,
+                            currentMonth: 0,
+                            credit: 0
+                          };
+
+                          if (!isLastMonthPayment) {
+                            // Allocate to older dues first
+                            if (remaining > 0 && (selectedCustomer.pendingDues || 0) > 0) {
+                              allocation.olderDues = Math.min(remaining, selectedCustomer.pendingDues || 0);
+                              remaining -= allocation.olderDues;
+                            }
+
+                            // Then last month
+                            if (remaining > 0 && (selectedCustomer.lastMonthDue || 0) > 0) {
+                              allocation.lastMonth = Math.min(remaining, selectedCustomer.lastMonthDue || 0);
+                              remaining -= allocation.lastMonth;
+                            }
+
+                            // Then current month
+                            if (remaining > 0 && (selectedCustomer.currentMonthDue || 0) > 0) {
+                              allocation.currentMonth = Math.min(remaining, selectedCustomer.currentMonthDue || 0);
+                              remaining -= allocation.currentMonth;
+                            }
+                          } else {
+                            // For last month payments, allocate directly to last month
+                            allocation.lastMonth = Math.min(remaining, Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0)));
+                            remaining -= allocation.lastMonth;
+                          }
+
+                          // Any remaining becomes credit
+                          if (remaining > 0) {
+                            allocation.credit = remaining;
+                          }
+
+                          return (
+                            <div className="space-y-1 text-xs">
+                              {allocation.olderDues > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Applied to older dues:</span>
+                                  <span className="font-medium">₹{allocation.olderDues.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {allocation.lastMonth > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Applied to last month:</span>
+                                  <span className="font-medium">₹{allocation.lastMonth.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {allocation.currentMonth > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Applied to current month:</span>
+                                  <span className="font-medium">₹{allocation.currentMonth.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {allocation.credit > 0 && (
+                                <div className="flex justify-between text-green-600">
+                                  <span>Advance payment credit:</span>
+                                  <span className="font-medium">₹{allocation.credit.toLocaleString()}</span>
+                                </div>
+                              )}
+                              <div className="border-t pt-1 mt-2">
+                                <div className="flex justify-between font-medium">
+                                  <span>Remaining balance:</span>
+                                  <span className={totalDue - newPayment.amount + allocation.credit <= 0 ? 'text-green-600' : 'text-orange-600'}>
+                                    ₹{Math.max(0, totalDue - newPayment.amount + allocation.credit).toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Payment Status Indicator */}
+                      {(() => {
+                        const totalDue = isLastMonthPayment
+                          ? Math.max(0, (selectedCustomer.lastMonthAmount || 0) - (selectedCustomer.lastMonthPaid || 0))
+                          : (selectedCustomer.totalDue || 0);
+
+                        if (newPayment.amount > totalDue) {
+                          return (
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="flex items-center gap-2 text-blue-700">
+                                <CheckCircle className="h-4 w-4" />
+                                <span className="font-medium">Overpayment</span>
+                              </div>
+                              <p className="text-sm text-blue-600 mt-1">
+                                ₹{(newPayment.amount - totalDue).toLocaleString()} will be credited as advance payment
+                              </p>
+                            </div>
+                          );
+                        } else if (newPayment.amount === totalDue) {
+                          return (
+                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <div className="flex items-center gap-2 text-green-700">
+                                <CheckCircle className="h-4 w-4" />
+                                <span className="font-medium">Full Payment</span>
+                              </div>
+                              <p className="text-sm text-green-600 mt-1">
+                                Account will be fully settled
+                              </p>
+                            </div>
+                          );
+                        } else if (newPayment.amount > 0) {
+                          return (
+                            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                              <div className="flex items-center gap-2 text-orange-700">
+                                <AlertTriangle className="h-4 w-4" />
+                                <span className="font-medium">Partial Payment</span>
+                              </div>
+                              <p className="text-sm text-orange-600 mt-1">
+                                ₹{(totalDue - newPayment.amount).toLocaleString()} will remain as balance
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   )}
                 </div>
 

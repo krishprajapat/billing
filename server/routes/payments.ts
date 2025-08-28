@@ -19,6 +19,8 @@ export const getPayments: RequestHandler = (req, res) => {
   }
 };
 
+// import { PaymentValidator, PaymentError, PaymentErrorCodes } from '../utils/payment-validation';
+
 export const recordPayment: RequestHandler = (req, res) => {
   try {
     const paymentData: RecordPaymentRequest = req.body;
@@ -32,6 +34,14 @@ export const recordPayment: RequestHandler = (req, res) => {
       return res.status(400).json(response);
     }
 
+    if (paymentData.amount <= 0) {
+      const response: ApiResponse = {
+        success: false,
+        error: "Payment amount must be greater than zero",
+      };
+      return res.status(400).json(response);
+    }
+
     const customer = db.getCustomerById(paymentData.customerId);
     if (!customer) {
       const response: ApiResponse = {
@@ -41,49 +51,60 @@ export const recordPayment: RequestHandler = (req, res) => {
       return res.status(404).json(response);
     }
 
-    // Get accurate payment summary for consistent calculations
-    const beforeSummary = db.getCustomerPaymentSummary(paymentData.customerId);
-    const totalDue = beforeSummary ? beforeSummary.totalDue : 0;
-
-    // Determine payment status based on amount vs total due
-    let paymentStatus: 'paid' | 'partial' | 'pending' = 'paid';
-    if (paymentData.amount < totalDue) {
-      paymentStatus = 'partial';
-    }
-
-    const currentDate = new Date();
-    const payment = db.createPayment({
+    // Process payment using the new engine
+    const result = db.createPayment({
       customerId: paymentData.customerId,
       amount: paymentData.amount,
       paymentMethod: paymentData.paymentMethod,
-      status: paymentStatus,
-      month: currentDate.toLocaleString('default', { month: 'long' }),
-      year: currentDate.getFullYear(),
-      dueDate: paymentData.paidDate,
       paidDate: paymentData.paidDate,
       notes: paymentData.notes,
     });
 
-    // Get updated summary after payment
-    const afterSummary = db.getCustomerPaymentSummary(paymentData.customerId);
-    const remainingBalance = afterSummary ? afterSummary.totalDue : 0;
-
-    // Create success message based on payment type
-    let message = "Payment recorded successfully";
-    if (paymentStatus === 'partial') {
-      message = `Partial payment recorded. Remaining balance: ₹${remainingBalance.toLocaleString()}`;
+    // Check for processing errors
+    if (result.errors.length > 0) {
+      const response: ApiResponse = {
+        success: false,
+        error: result.errors.join(', '),
+      };
+      return res.status(400).json(response);
     }
 
-    const response: ApiResponse<Payment> = {
+    // Generate success message
+    let message = "Payment recorded successfully";
+    const remainingBalance = result.summary?.totalDue || 0;
+
+    if (remainingBalance > 0) {
+      message = `Partial payment recorded. Remaining balance: ₹${remainingBalance.toLocaleString()}`;
+    } else if (remainingBalance === 0) {
+      message = "Full payment recorded. Account is now settled.";
+    }
+
+    // Add warnings if any
+    if (result.warnings.length > 0) {
+      message += ` Note: ${result.warnings.join(', ')}`;
+    }
+
+    const response: ApiResponse<{
+      payment: Payment;
+      summary: any;
+      remainingBalance: number;
+      warnings: string[];
+    }> = {
       success: true,
-      data: payment,
+      data: {
+        payment: result.payment,
+        summary: result.summary,
+        remainingBalance,
+        warnings: result.warnings || []
+      },
       message,
     };
     res.status(201).json(response);
   } catch (error) {
+    console.error('Payment recording error:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to record payment",
+      error: "Failed to record payment. Please try again.",
     };
     res.status(500).json(response);
   }
