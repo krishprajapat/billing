@@ -26,6 +26,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.2",
     "qrcode": "^1.5.4",
+    "razorpay": "^2.9.6",
     "zod": "^3.25.76"
   },
   "devDependencies": {

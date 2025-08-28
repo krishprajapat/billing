@@ -22,7 +22,7 @@ export const getPayments: RequestHandler = (req, res) => {
 export const recordPayment: RequestHandler = (req, res) => {
   try {
     const paymentData: RecordPaymentRequest = req.body;
-    
+
     // Basic validation
     if (!paymentData.customerId || paymentData.amount === undefined || paymentData.amount === null || !paymentData.paymentMethod) {
       const response: ApiResponse = {
@@ -41,12 +41,21 @@ export const recordPayment: RequestHandler = (req, res) => {
       return res.status(404).json(response);
     }
 
+    // Calculate customer's total due (current month + pending dues)
+    const totalDue = (customer.currentMonthAmount || 0) + (customer.pendingDues || 0);
+
+    // Determine payment status based on amount vs total due
+    let paymentStatus: 'paid' | 'partial' | 'pending' = 'paid';
+    if (paymentData.amount < totalDue) {
+      paymentStatus = 'partial';
+    }
+
     const currentDate = new Date();
     const payment = db.createPayment({
       customerId: paymentData.customerId,
       amount: paymentData.amount,
       paymentMethod: paymentData.paymentMethod,
-      status: 'paid',
+      status: paymentStatus,
       month: currentDate.toLocaleString('default', { month: 'long' }),
       year: currentDate.getFullYear(),
       dueDate: paymentData.paidDate,
@@ -54,10 +63,17 @@ export const recordPayment: RequestHandler = (req, res) => {
       notes: paymentData.notes,
     });
 
+    // Create success message based on payment type
+    let message = "Payment recorded successfully";
+    if (paymentStatus === 'partial') {
+      const remainingBalance = totalDue - paymentData.amount;
+      message = `Partial payment recorded. Remaining balance: ₹${remainingBalance.toLocaleString()}`;
+    }
+
     const response: ApiResponse<Payment> = {
       success: true,
       data: payment,
-      message: paymentData.amount < 0 ? "Deduction applied successfully" : "Payment recorded successfully",
+      message,
     };
     res.status(201).json(response);
   } catch (error) {

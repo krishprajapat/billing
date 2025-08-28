@@ -302,7 +302,11 @@ export const areaApi = {
 export const razorpayApi = {
   createPaymentLink: (data: {
     amount: number;
-    customer: { name: string; contact: string; email?: string };
+    customer: {
+      name: string;
+      contact: string;
+      email?: string;
+    };
     description: string;
     reference_id: string;
     expire_by?: number;
@@ -313,24 +317,42 @@ export const razorpayApi = {
     reference_id: string;
     status: string;
     amount: number;
-    customer: { name: string; contact: string; email?: string };
+    customer: {
+      name: string;
+      contact: string;
+      email?: string;
+    };
     description: string;
     expire_by?: number;
     created_at: number;
   }> =>
-    apiRequest('/razorpay/payment-links', {
+    apiRequest('/razorpay/payment-link', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  getPaymentLink: (linkId: string) =>
-    apiRequest(`/razorpay/payment-links/${linkId}`),
+  getPaymentLink: (linkId: string): Promise<{
+    id: string;
+    short_url: string;
+    reference_id: string;
+    status: string;
+    amount: number;
+    customer: {
+      name: string;
+      contact: string;
+      email?: string;
+    };
+    description: string;
+    created_at: number;
+  }> =>
+    apiRequest(`/razorpay/payment-link/${linkId}`),
 
-  cancelPaymentLink: (linkId: string) =>
-    apiRequest(`/razorpay/payment-links/${linkId}/cancel`, {
+  cancelPaymentLink: (linkId: string): Promise<{ status: string }> =>
+    apiRequest(`/razorpay/payment-link/${linkId}/cancel`, {
       method: 'POST',
     }),
 };
+
 
 // Settings API (placeholder - you might need to create these endpoints)
 export const settingsApi = {

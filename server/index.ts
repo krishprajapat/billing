@@ -149,10 +149,10 @@ export function createServer() {
   app.get("/api/daily/totals", getDailyTotals);
 
   // Razorpay routes
-  app.post("/api/razorpay/payment-links", createPaymentLink);
-  app.get("/api/razorpay/payment-links/:linkId", getPaymentLink);
-  app.post("/api/razorpay/webhook", handlePaymentCallback);
-  app.post("/api/razorpay/payment-links/:linkId/cancel", cancelPaymentLink);
+  app.post("/api/razorpay/payment-link", createPaymentLink);
+  app.get("/api/razorpay/payment-link/:linkId", getPaymentLink);
+  app.post("/api/razorpay/callback", handlePaymentCallback);
+  app.post("/api/razorpay/payment-link/:linkId/cancel", cancelPaymentLink);
 
   return app;
 }

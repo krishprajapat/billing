@@ -1,9 +1,6 @@
 import { RequestHandler } from "express";
 import { ApiResponse } from "@shared/api";
-
-// Mock Razorpay integration - in production, you would use the actual Razorpay SDK
-// npm install razorpay
-// import Razorpay from 'razorpay';
+import Razorpay from 'razorpay';
 
 interface CreatePaymentLinkRequest {
   amount: number; // Amount in rupees
@@ -34,11 +31,11 @@ interface PaymentLinkResponse {
   created_at: number;
 }
 
-// Initialize Razorpay (mock for now)
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID!,
-//   key_secret: process.env.RAZORPAY_KEY_SECRET!,
-// });
+// Initialize Razorpay with credentials
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_NIKxmqjvmmqx1B',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'qWVOSshch4uz68VdU2Cwlkn4',
+});
 
 // Create payment link
 export const createPaymentLink: RequestHandler = async (req, res) => {
@@ -60,8 +57,7 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
       });
     }
 
-    // Mock payment link creation (replace with actual Razorpay API call)
-    /*
+    // Create payment link with actual Razorpay API
     const paymentLink = await razorpay.paymentLink.create({
       amount: amount * 100, // Convert to paise
       currency: 'INR',
@@ -81,28 +77,31 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
         reference_id,
         ...notes
       },
-      callback_url: `${process.env.BASE_URL}/payment/callback`,
-      callback_method: 'get',
+      callback_url: `${process.env.BASE_URL || 'http://localhost:8080'}/api/razorpay/callback`,
+      callback_method: 'post',
       expire_by: expire_by || Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days from now
     });
-    */
 
-    // Mock response - replace with actual Razorpay response
-    const mockPaymentLink: PaymentLinkResponse = {
-      id: `plink_${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-      short_url: `https://rzp.io/l/${reference_id.toLowerCase()}`,
+    // Map response to our interface
+    const mappedPaymentLink: PaymentLinkResponse = {
+      id: paymentLink.id,
+      short_url: paymentLink.short_url,
       reference_id,
-      status: 'created',
-      amount: amount * 100, // In paise
-      customer,
-      description,
-      expire_by: expire_by || Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60),
-      created_at: Math.floor(Date.now() / 1000)
+      status: paymentLink.status,
+      amount: paymentLink.amount,
+      customer: {
+        name: paymentLink.customer.name,
+        contact: paymentLink.customer.contact,
+        email: paymentLink.customer.email
+      },
+      description: paymentLink.description,
+      expire_by: paymentLink.expire_by,
+      created_at: paymentLink.created_at
     };
 
     const response: ApiResponse<PaymentLinkResponse> = {
       success: true,
-      data: mockPaymentLink,
+      data: mappedPaymentLink,
       message: 'Payment link created successfully',
     };
 
@@ -117,7 +116,7 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
 };
 
 // Get payment link details
-export const getPaymentLink: RequestHandler = (req, res) => {
+export const getPaymentLink: RequestHandler = async (req, res) => {
   try {
     const { linkId } = req.params;
     
@@ -128,29 +127,28 @@ export const getPaymentLink: RequestHandler = (req, res) => {
       });
     }
 
-    // Mock get payment link (replace with actual Razorpay API call)
-    /*
+    // Get payment link with actual Razorpay API
     const paymentLink = await razorpay.paymentLink.fetch(linkId);
-    */
 
-    // Mock response
-    const mockPaymentLink: PaymentLinkResponse = {
-      id: linkId,
-      short_url: `https://rzp.io/l/${linkId}`,
-      reference_id: `BILL-${Date.now()}`,
-      status: 'created',
-      amount: 50000, // 500 INR in paise
+    // Map response to our interface
+    const mappedPaymentLink: PaymentLinkResponse = {
+      id: paymentLink.id,
+      short_url: paymentLink.short_url,
+      reference_id: paymentLink.reference_id || `BILL-${Date.now()}`,
+      status: paymentLink.status,
+      amount: paymentLink.amount,
       customer: {
-        name: 'Mock Customer',
-        contact: '+919876543210'
+        name: paymentLink.customer.name,
+        contact: paymentLink.customer.contact,
+        email: paymentLink.customer.email
       },
-      description: 'Milk delivery bill',
-      created_at: Math.floor(Date.now() / 1000)
+      description: paymentLink.description,
+      created_at: paymentLink.created_at
     };
 
     const response: ApiResponse<PaymentLinkResponse> = {
       success: true,
-      data: mockPaymentLink,
+      data: mappedPaymentLink,
     };
 
     res.json(response);
@@ -166,30 +164,36 @@ export const getPaymentLink: RequestHandler = (req, res) => {
 // Handle payment callback (webhook)
 export const handlePaymentCallback: RequestHandler = (req, res) => {
   try {
-    // This would handle Razorpay webhooks for payment status updates
-    const { payment_link_id, payment_id, status } = req.body;
-    
-    console.log('Payment callback received:', {
-      payment_link_id,
-      payment_id,
-      status
-    });
+    const { event, payload } = req.body;
 
-    // In a real implementation, you would:
-    // 1. Verify the webhook signature
-    // 2. Update the payment status in your database
-    // 3. Send confirmation to customer
-    // 4. Update customer dues
-    
+    console.log('Payment webhook received:', { event, payload });
+
+    // Handle different Razorpay events
+    if (event === 'payment_link.paid') {
+      const paymentLink = payload.payment_link.entity;
+      const payment = payload.payment.entity;
+
+      console.log('Payment successful:', {
+        payment_link_id: paymentLink.id,
+        payment_id: payment.id,
+        amount: payment.amount,
+        reference_id: paymentLink.reference_id
+      });
+
+      // TODO: Update payment status in database
+      // This will be implemented when we update the payment system
+      // to automatically handle online payments
+    }
+
     res.json({
       success: true,
-      message: 'Payment callback processed'
+      message: 'Webhook processed successfully'
     });
   } catch (error) {
-    console.error('Error processing payment callback:', error);
+    console.error('Error processing payment webhook:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to process payment callback',
+      error: 'Failed to process payment webhook',
     });
   }
 };
@@ -206,14 +210,12 @@ export const cancelPaymentLink: RequestHandler = async (req, res) => {
       });
     }
 
-    // Mock cancel payment link (replace with actual Razorpay API call)
-    /*
+    // Cancel payment link with actual Razorpay API
     const cancelledLink = await razorpay.paymentLink.cancel(linkId);
-    */
 
     const response: ApiResponse<{ status: string }> = {
       success: true,
-      data: { status: 'cancelled' },
+      data: { status: cancelledLink.status },
       message: 'Payment link cancelled successfully',
     };
 

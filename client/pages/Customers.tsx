@@ -49,9 +49,11 @@ import {
 } from "lucide-react";
 import { customerApi, workerApi, areaApi, dailyApi, ApiError } from "@/lib/api-client";
 import { PDFBillGenerator, shareViaWhatsApp, generateRazorpayPaymentLink, BillData, BusinessInfo } from "@/lib/pdf-generator";
+import { useNavigate } from "react-router-dom";
 import { Customer, CreateCustomerRequest, UpdateCustomerRequest, Worker, Area } from "../../shared/api";
 
 export default function Customers() {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
@@ -308,6 +310,11 @@ export default function Customers() {
       console.error('Failed to update customer status:', err);
       setError(err instanceof ApiError ? err.message : 'Failed to update customer status');
     }
+  };
+
+  const handleViewPaymentDetails = (customer: Customer) => {
+    // Navigate to payments page with customer filter
+    navigate(`/payments?customerId=${customer.id}&customerName=${encodeURIComponent(customer.name)}`);
   };
 
   const handleSendBill = async (customer: Customer) => {
@@ -920,6 +927,10 @@ export default function Customers() {
                             <DropdownMenuItem onClick={() => handleEditCustomer(customer)}>
                               <Edit className="h-4 w-4 mr-2" />
                               Edit Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleViewPaymentDetails(customer)}>
+                              <IndianRupee className="h-4 w-4 mr-2" />
+                              View Payment Details
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleSendBill(customer)}
