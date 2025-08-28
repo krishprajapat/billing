@@ -41,8 +41,9 @@ export const recordPayment: RequestHandler = (req, res) => {
       return res.status(404).json(response);
     }
 
-    // Calculate customer's total due (current month + pending dues)
-    const totalDue = (customer.currentMonthAmount || 0) + (customer.pendingDues || 0);
+    // Get accurate payment summary for consistent calculations
+    const beforeSummary = db.getCustomerPaymentSummary(paymentData.customerId);
+    const totalDue = beforeSummary ? beforeSummary.totalDue : 0;
 
     // Determine payment status based on amount vs total due
     let paymentStatus: 'paid' | 'partial' | 'pending' = 'paid';
@@ -63,10 +64,13 @@ export const recordPayment: RequestHandler = (req, res) => {
       notes: paymentData.notes,
     });
 
+    // Get updated summary after payment
+    const afterSummary = db.getCustomerPaymentSummary(paymentData.customerId);
+    const remainingBalance = afterSummary ? afterSummary.totalDue : 0;
+
     // Create success message based on payment type
     let message = "Payment recorded successfully";
     if (paymentStatus === 'partial') {
-      const remainingBalance = totalDue - paymentData.amount;
       message = `Partial payment recorded. Remaining balance: ₹${remainingBalance.toLocaleString()}`;
     }
 
@@ -108,23 +112,27 @@ export const getPaymentStats: RequestHandler = (req, res) => {
   try {
     const customers = db.getCustomers({ status: 'active' });
     const payments = db.getPayments();
-    
+
+    // Use new payment summary calculations
+    const paymentSummaries = customers.map(c => db.getCustomerPaymentSummary(c.id)).filter(Boolean);
+
     const currentDate = new Date();
     const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
     const currentYear = currentDate.getFullYear();
-    
-    const currentMonthPayments = payments.filter(p => 
+
+    const currentMonthPayments = payments.filter(p =>
       p.month === currentMonth && p.year === currentYear
     );
 
-    const totalRevenue = customers.reduce((sum, c) => sum + c.monthlyAmount, 0);
+    const totalRevenue = paymentSummaries.reduce((sum, s) => sum + s!.currentMonthAmount, 0);
     const collectedRevenue = currentMonthPayments
       .filter(p => p.status === 'paid')
       .reduce((sum, p) => sum + p.amount, 0);
-    const pendingRevenue = customers.reduce((sum, c) => sum + c.pendingDues, 0);
+    const pendingRevenue = paymentSummaries.reduce((sum, s) => sum + s!.totalDue, 0);
 
-    const paidCustomers = customers.filter(c => c.pendingDues === 0).length;
-    const pendingCustomers = customers.filter(c => c.pendingDues > 0).length;
+    const paidCustomers = paymentSummaries.filter(s => s!.paymentStatus === 'paid').length;
+    const overdueCustomers = paymentSummaries.filter(s => s!.isOverdue && s!.totalDue > 0).length;
+    const pendingCustomers = customers.length - paidCustomers;
 
     const paymentMethodStats = payments.reduce((acc: any, payment) => {
       if (!acc[payment.paymentMethod]) {
@@ -142,7 +150,7 @@ export const getPaymentStats: RequestHandler = (req, res) => {
       collectionRate: totalRevenue > 0 ? (collectedRevenue / totalRevenue) * 100 : 0,
       paidCustomers,
       pendingCustomers,
-      overdueCustomers: customers.filter(c => c.pendingDues > c.monthlyAmount).length,
+      overdueCustomers,
       paymentMethodStats,
       totalTransactions: payments.length,
     };
@@ -159,7 +167,7 @@ export const getPaymentStats: RequestHandler = (req, res) => {
     };
     res.status(500).json(response);
   }
-};
+}
 
 export const generateMonthlyBills: RequestHandler = (req, res) => {
   try {
@@ -290,20 +298,54 @@ export const generateInvoice: RequestHandler = (req, res) => {
   }
 };
 
+export const getCustomerPaymentSummaries: RequestHandler = (req, res) => {
+  try {
+    const customers = db.getCustomers({ status: 'active' });
+    const paymentSummaries = customers.map(customer => {
+      const summary = db.getCustomerPaymentSummary(customer.id);
+      return summary ? {
+        ...summary,
+        customer: {
+          ...summary.customer,
+          areaName: summary.customer.areaName || 'Unknown',
+          workerName: summary.customer.workerName || 'Unassigned'
+        }
+      } : null;
+    }).filter(Boolean);
+
+    const response: ApiResponse = {
+      success: true,
+      data: paymentSummaries,
+    };
+    res.json(response);
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: "Failed to fetch customer payment summaries",
+    };
+    res.status(500).json(response);
+  }
+};
+
 export const getOverduePayments: RequestHandler = (req, res) => {
   try {
     const customers = db.getCustomers({ status: 'active' });
-    const overdueCustomers = customers.filter(c => c.pendingDues > 0);
+    const overdueCustomers = customers
+      .map(customer => db.getCustomerPaymentSummary(customer.id))
+      .filter(summary => summary && summary.isOverdue && summary.totalDue > 0);
 
-    const overduePayments = overdueCustomers.map(customer => ({
-      customerId: customer.id,
-      customerName: customer.name,
-      customerPhone: customer.phone,
-      area: customer.area,
-      overdueAmount: customer.pendingDues,
-      monthlyAmount: customer.monthlyAmount,
-      lastPayment: customer.lastPayment,
-      worker: customer.workerName,
+    const overduePayments = overdueCustomers.map(summary => ({
+      customerId: summary!.customer.id,
+      customerName: summary!.customer.name,
+      customerPhone: summary!.customer.phone,
+      area: summary!.customer.areaName || 'Unknown',
+      overdueAmount: summary!.totalDue,
+      monthlyAmount: summary!.currentMonthAmount,
+      lastPayment: summary!.customer.lastPayment,
+      worker: summary!.customer.workerName || 'Unassigned',
+      currentMonthDue: summary!.currentMonthDue,
+      lastMonthDue: summary!.lastMonthDue,
+      pendingDues: summary!.pendingDues,
     }));
 
     const response: ApiResponse = {

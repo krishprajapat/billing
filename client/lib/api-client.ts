@@ -195,8 +195,11 @@ export const paymentApi = {
       body: JSON.stringify(data),
     }),
     
-  getOverdue: (): Promise<Payment[]> => 
+  getOverdue: (): Promise<Payment[]> =>
     apiRequest<Payment[]>('/payments/overdue'),
+
+  getSummaries: (): Promise<any[]> =>
+    apiRequest<any[]>('/payments/summaries'),
 };
 
 // Reports API

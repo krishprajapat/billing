@@ -42,7 +42,8 @@ import {
   generateInvoice,
   getOverduePayments,
   generateMonthlyBills,
-  sendPaymentReminder
+  sendPaymentReminder,
+  getCustomerPaymentSummaries
 } from "./routes/payments";
 
 // Dashboard routes
@@ -127,6 +128,7 @@ export function createServer() {
   app.post("/api/payments", recordPayment);
   app.get("/api/payments/customer/:customerId", getCustomerPayments);
   app.get("/api/payments/stats", getPaymentStats);
+  app.get("/api/payments/summaries", getCustomerPaymentSummaries);
   app.post("/api/payments/invoice", generateInvoice);
   app.get("/api/payments/overdue", getOverduePayments);
   app.post("/api/payments/bill", generateMonthlyBills);

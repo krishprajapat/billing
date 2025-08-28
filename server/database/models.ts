@@ -307,17 +307,92 @@ class Database {
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
+    // Calculate last month dates
+    const lastMonthDate = new Date(currentYear, currentMonth - 1, 1);
+    const lastMonth = lastMonthDate.getMonth();
+    const lastMonthYear = lastMonthDate.getFullYear();
+
     this.customers.forEach(customer => {
-      const customerDeliveries = this.dailyDeliveries.filter(d =>
+      // Current month deliveries and amount
+      const currentMonthDeliveries = this.dailyDeliveries.filter(d =>
         d.customerId === customer.id &&
         new Date(d.date).getMonth() === currentMonth &&
         new Date(d.date).getFullYear() === currentYear
       );
 
-      customer.currentMonthDeliveries = customerDeliveries.length;
-      customer.currentMonthAmount = customerDeliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
+      // Last month deliveries and amount
+      const lastMonthDeliveries = this.dailyDeliveries.filter(d =>
+        d.customerId === customer.id &&
+        new Date(d.date).getMonth() === lastMonth &&
+        new Date(d.date).getFullYear() === lastMonthYear
+      );
+
+      customer.currentMonthDeliveries = currentMonthDeliveries.length;
+      customer.currentMonthAmount = currentMonthDeliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
+
+      // Store last month amount for calculations (add new field if needed)
+      const lastMonthAmount = lastMonthDeliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
+
+      // Update monthlyAmount to be current month amount for compatibility
       customer.monthlyAmount = customer.currentMonthAmount;
+
+      // Calculate and update customer dues based on payments
+      this.updateCustomerDues(customer, lastMonthAmount);
     });
+  }
+
+  private updateCustomerDues(customer: Customer, lastMonthAmount: number) {
+    const today = new Date();
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+    // Get customer payments
+    const customerPayments = this.payments.filter(p => p.customerId === customer.id && p.status === 'paid');
+
+    // Calculate payments for current month
+    const currentMonthPaid = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate >= currentMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate payments for last month
+    const lastMonthPaid = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate >= lastMonth && paymentDate < currentMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate payments before last month (for older dues)
+    const olderPayments = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate < lastMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate dues
+    const currentMonthDue = Math.max(0, customer.currentMonthAmount - currentMonthPaid);
+    const lastMonthDue = Math.max(0, lastMonthAmount - lastMonthPaid);
+
+    // Calculate older dues: Original pending dues minus payments made before last month
+    // But we need to be careful not to go negative
+    const originalPendingDues = customer.pendingDues || 0;
+    const adjustedOlderDues = Math.max(0, originalPendingDues - olderPayments);
+
+    // Total pending dues = last month due + older dues (excluding current month)
+    customer.pendingDues = lastMonthDue + adjustedOlderDues;
+
+    // Update last payment date
+    const lastPayment = customerPayments
+      .filter(p => p.paidDate)
+      .sort((a, b) => new Date(b.paidDate!).getTime() - new Date(a.paidDate!).getTime())[0];
+
+    if (lastPayment) {
+      customer.lastPayment = lastPayment.paidDate;
+    }
   }
 
   private updateWorkerStats() {
@@ -597,15 +672,98 @@ class Database {
 
     this.payments.push(payment);
 
-    // Update customer pending dues
+    // Update customer dues and recalculate monthly amounts
     if (customer && data.paidDate) {
-      // For positive amounts (payments), reduce pending dues
-      // For negative amounts (deductions), also reduce pending dues (since negative minus negative = reduction)
-      customer.pendingDues = Math.max(0, customer.pendingDues - Math.abs(data.amount));
       customer.lastPayment = data.paidDate;
+      // Recalculate all customer dues after adding payment
+      this.calculateCustomerMonthlyAmounts();
     }
 
     return payment;
+  }
+
+  // New method to get customer payment summary
+  getCustomerPaymentSummary(customerId: number) {
+    const customer = this.customers.find(c => c.id === customerId);
+    if (!customer) return null;
+
+    const today = new Date();
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+    // Get customer payments
+    const customerPayments = this.payments.filter(p => p.customerId === customerId && p.status === 'paid');
+
+    // Calculate last month amount from deliveries
+    const lastMonthDeliveries = this.dailyDeliveries.filter(d =>
+      d.customerId === customerId &&
+      new Date(d.date).getMonth() === lastMonth.getMonth() &&
+      new Date(d.date).getFullYear() === lastMonth.getFullYear()
+    );
+    const lastMonthAmount = lastMonthDeliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
+
+    // Calculate payments by month
+    const currentMonthPaid = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate >= currentMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const lastMonthPaid = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate >= lastMonth && paymentDate < currentMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate all payments before last month (for older dues)
+    const olderPayments = customerPayments
+      .filter(p => {
+        const paymentDate = new Date(p.paidDate || p.createdAt);
+        return paymentDate < lastMonth;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate dues for each period
+    const currentMonthDue = Math.max(0, customer.currentMonthAmount - currentMonthPaid);
+    const lastMonthDue = Math.max(0, lastMonthAmount - lastMonthPaid);
+
+    // Calculate older dues: original pending dues minus older payments
+    const originalPendingDues = customer.pendingDues || 0;
+    const olderDues = Math.max(0, originalPendingDues - olderPayments);
+
+    // Total due includes all unpaid amounts
+    const totalDue = currentMonthDue + lastMonthDue + olderDues;
+
+    // Update the customer's pendingDues to reflect actual older dues (excluding current and last month)
+    const updatedPendingDues = olderDues;
+
+    // Determine payment status
+    let paymentStatus: 'paid' | 'partial' | 'pending' | 'overdue' = 'pending';
+    const isOverdue = currentMonthDue > 0 || lastMonthDue > 0 || olderDues > 0;
+
+    if (isOverdue && totalDue > 0) {
+      paymentStatus = 'overdue';
+    } else if (totalDue <= 0) {
+      paymentStatus = 'paid';
+    } else if (currentMonthPaid > 0 || lastMonthPaid > 0 || olderPayments > 0) {
+      paymentStatus = 'partial';
+    }
+
+    return {
+      customer,
+      lastMonthAmount,
+      currentMonthAmount: customer.currentMonthAmount,
+      lastMonthPaid,
+      currentMonthPaid,
+      currentMonthDue,
+      lastMonthDue,
+      pendingDues: updatedPendingDues,
+      totalDue,
+      paymentStatus,
+      isOverdue
+    };
   }
 
   // Settings methods

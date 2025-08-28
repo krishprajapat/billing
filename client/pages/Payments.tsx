@@ -60,14 +60,17 @@ import { paymentApi, customerApi, dailyApi, ApiError } from "@/lib/api-client";
 import { PDFBillGenerator, shareViaWhatsApp, generateRazorpayPaymentLink, BillData, BusinessInfo } from "@/lib/pdf-generator";
 import { Payment, RecordPaymentRequest, Customer, PaymentMethod } from "../../shared/api";
 
-interface CustomerPaymentInfo extends Customer {
+interface CustomerPaymentInfo {
+  customer: Customer;
   lastMonthAmount: number;
   currentMonthAmount: number;
-  paymentStatus: 'paid' | 'partial' | 'pending' | 'overdue';
-  lastPaymentDate?: string;
-  totalDue: number;
   lastMonthPaid: number;
   currentMonthPaid: number;
+  currentMonthDue: number;
+  lastMonthDue: number;
+  pendingDues: number;
+  totalDue: number;
+  paymentStatus: 'paid' | 'partial' | 'pending' | 'overdue';
   isOverdue: boolean;
 }
 
@@ -77,6 +80,7 @@ export default function Payments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [customers, setCustomers] = useState<CustomerPaymentInfo[]>([]);
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -84,6 +88,7 @@ export default function Payments() {
   const [activeTab, setActiveTab] = useState("current-month");
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerPaymentInfo | null>(null);
+  const [isLastMonthPayment, setIsLastMonthPayment] = useState(false);
   const [newPayment, setNewPayment] = useState<RecordPaymentRequest>({
     customerId: 0,
     amount: 0,
@@ -113,95 +118,17 @@ export default function Payments() {
       setLoading(true);
       setError(null);
 
-      const [customersResponse, paymentsResponse] = await Promise.all([
-        customerApi.getAll(),
-        paymentApi.getAll()
+      const [paymentSummariesResponse, paymentsResponse, customersResponse] = await Promise.all([
+        paymentApi.getSummaries(),
+        paymentApi.getAll(),
+        customerApi.getAll()
       ]);
 
-      // Calculate payment info for each customer
-      const customersWithPaymentInfo = customersResponse.map((customer): CustomerPaymentInfo => {
-        const customerPayments = paymentsResponse.filter(p => p.customerId === customer.id);
+      // Store all customers for reference
+      setAllCustomers(customersResponse);
 
-        // Get current month and last month dates
-        const now = new Date();
-        const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-
-        // Calculate last month amount from deliveries
-        const lastMonthAmount = customer.monthlyAmount || (customer.dailyQuantity * customer.ratePerLiter * 30);
-
-        // Current month amount (bills up to current date)
-        const currentMonthAmount = customer.currentMonthAmount || 0;
-
-        // Calculate payments for last month
-        const lastMonthPaid = customerPayments
-          .filter(p => {
-            const paymentDate = new Date(p.paidDate || p.createdAt);
-            return p.status === 'paid' &&
-                   paymentDate >= lastMonth &&
-                   paymentDate < currentMonth;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
-
-        // Calculate payments for current month
-        const currentMonthPaid = customerPayments
-          .filter(p => {
-            const paymentDate = new Date(p.paidDate || p.createdAt);
-            return p.status === 'paid' && paymentDate >= currentMonth;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
-
-        // Check if customer has overdue payments (unpaid current month, last month, or earlier)
-        const lastPaymentDate = customerPayments
-          .filter(p => p.paidDate && p.status === 'paid')
-          .sort((a, b) => new Date(b.paidDate!).getTime() - new Date(a.paidDate!).getTime())[0]?.paidDate;
-
-        // Customer is overdue if they have unpaid bills from current month, last month, or earlier months
-        const hasCurrentMonthDue = currentMonthAmount > currentMonthPaid;
-        const hasLastMonthDue = lastMonthAmount > lastMonthPaid;
-        const hasEarlierDues = (customer.pendingDues || 0) > 0;
-        const isOverdue = hasCurrentMonthDue || hasLastMonthDue || hasEarlierDues;
-
-        // Calculate dues
-        const lastMonthDue = Math.max(0, lastMonthAmount - lastMonthPaid);
-        const currentMonthDue = Math.max(0, currentMonthAmount - currentMonthPaid);
-        const adjustedPendingDues = (customer.pendingDues || 0) + lastMonthDue;
-        const totalDue = currentMonthDue + adjustedPendingDues;
-
-        // Determine payment status
-        let paymentStatus: 'paid' | 'partial' | 'pending' | 'overdue' = 'pending';
-        const totalPaid = customerPayments
-          .filter(p => p.status === 'paid')
-          .reduce((sum, p) => sum + p.amount, 0);
-
-        if (isOverdue && totalDue > 0) {
-          paymentStatus = 'overdue';
-        } else if (totalPaid >= totalDue && totalDue > 0) {
-          paymentStatus = 'paid';
-        } else if (totalPaid > 0) {
-          paymentStatus = 'partial';
-        }
-
-        const lastPayment = customerPayments
-          .filter(p => p.paidDate)
-          .sort((a, b) => new Date(b.paidDate!).getTime() - new Date(a.paidDate!).getTime())[0];
-
-        return {
-          ...customer,
-          lastMonthAmount,
-          currentMonthAmount,
-          paymentStatus,
-          lastPaymentDate: lastPayment?.paidDate,
-          totalDue,
-          pendingDues: adjustedPendingDues,
-          lastMonthPaid,
-          currentMonthPaid,
-          isOverdue
-        };
-      });
-
-      setCustomers(customersWithPaymentInfo);
+      // Use server-calculated payment summaries
+      setCustomers(paymentSummariesResponse);
       setPayments(paymentsResponse);
     } catch (err) {
       console.error('Failed to fetch payment data:', err);
@@ -216,16 +143,30 @@ export default function Payments() {
 
     try {
       setSubmitting(true);
+
+      let paymentNotes = newPayment.notes || '';
+
+      // Add month/year information for last month payments
+      if (isLastMonthPayment) {
+        const lastMonthDate = new Date();
+        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+        const lastMonth = lastMonthDate.toLocaleString('default', { month: 'long' });
+        const lastYear = lastMonthDate.getFullYear();
+        paymentNotes = `${paymentNotes} [MONTH:${lastMonth}] [YEAR:${lastYear}]`.trim();
+      }
+
       const payment = await paymentApi.record({
         ...newPayment,
-        customerId: selectedCustomer.id
+        customerId: selectedCustomer.customer.id,
+        notes: paymentNotes
       });
 
       // Update customer's pending dues and refresh data
       await fetchData();
-      
+
       setIsPaymentDialogOpen(false);
       setSelectedCustomer(null);
+      setIsLastMonthPayment(false);
       setNewPayment({
         customerId: 0,
         amount: 0,
@@ -243,7 +184,7 @@ export default function Payments() {
 
   const handleSendBill = async (customer: CustomerPaymentInfo) => {
     try {
-      setGeneratingBill(customer.id);
+      setGeneratingBill(customer.customer.id);
       
       // Get current month's delivery data
       const currentDate = new Date();
@@ -252,7 +193,7 @@ export default function Payments() {
       
       // Get daily deliveries for this customer for current month
       const deliveries = await dailyApi.getDeliveries({ 
-        customerId: customer.id,
+        customerId: customer.customer.id,
       });
 
       // Filter deliveries for current month
@@ -271,18 +212,18 @@ export default function Payments() {
       }));
 
       // Generate Razorpay payment link
-      const billNumber = `BILL-${customer.id}-${currentMonth}${currentYear}`;
+      const billNumber = `BILL-${customer.customer.id}-${currentMonth}${currentYear}`;
       const totalAmount = customer.totalDue;
       const paymentLink = await generateRazorpayPaymentLink(
         totalAmount, 
-        customer.name, 
-        customer.phone, 
+        customer.customer.name, 
+        customer.customer.phone, 
         billNumber
       );
 
       // Prepare bill data
       const billData: BillData = {
-        customer,
+        customer: customer.customer,
         dailyDeliveries: billDeliveries,
         currentMonthAmount: customer.currentMonthAmount || 0,
         pendingDues: customer.pendingDues || 0,
@@ -306,7 +247,7 @@ export default function Payments() {
       const pdfBlob = await pdfGenerator.generateBill(billData, businessInfo);
 
       // Share via WhatsApp
-      shareViaWhatsApp(customer.phone, pdfBlob, customer.name, totalAmount);
+      shareViaWhatsApp(customer.customer.phone, pdfBlob, customer.customer.name, totalAmount);
 
     } catch (err) {
       console.error('Failed to generate bill:', err);
@@ -318,7 +259,7 @@ export default function Payments() {
 
   const handleSendLastMonthBill = async (customer: CustomerPaymentInfo) => {
     try {
-      setGeneratingBill(customer.id);
+      setGeneratingBill(customer.customer.id);
 
       // Get last month's delivery data
       const currentDate = new Date();
@@ -328,7 +269,7 @@ export default function Payments() {
 
       // Get daily deliveries for this customer for last month
       const deliveries = await dailyApi.getDeliveries({
-        customerId: customer.id,
+        customerId: customer.customer.id,
       });
 
       // Filter deliveries for last month
@@ -347,18 +288,18 @@ export default function Payments() {
       }));
 
       // Generate Razorpay payment link for last month bill
-      const billNumber = `BILL-${customer.id}-${lastMonth}${lastMonthYear}`;
+      const billNumber = `BILL-${customer.customer.id}-${lastMonth}${lastMonthYear}`;
       const lastMonthDue = Math.max(0, customer.lastMonthAmount - customer.lastMonthPaid);
       const paymentLink = await generateRazorpayPaymentLink(
         lastMonthDue,
-        customer.name,
-        customer.phone,
+        customer.customer.name,
+        customer.customer.phone,
         billNumber
       );
 
       // Prepare bill data for last month
       const billData: BillData = {
-        customer,
+        customer: customer.customer,
         dailyDeliveries: billDeliveries,
         currentMonthAmount: customer.lastMonthAmount,
         pendingDues: 0, // No previous dues for last month bill
@@ -382,7 +323,7 @@ export default function Payments() {
       const pdfBlob = await pdfGenerator.generateBill(billData, businessInfo);
 
       // Share via WhatsApp
-      shareViaWhatsApp(customer.phone, pdfBlob, customer.name, lastMonthDue);
+      shareViaWhatsApp(customer.customer.phone, pdfBlob, customer.customer.name, lastMonthDue);
 
     } catch (err) {
       console.error('Failed to generate last month bill:', err);
@@ -394,11 +335,25 @@ export default function Payments() {
 
   const handleQuickPayment = (customer: CustomerPaymentInfo) => {
     setSelectedCustomer(customer);
+    setIsLastMonthPayment(false);
     setNewPayment({
-      customerId: customer.id,
+      customerId: customer.customer.id,
       amount: customer.totalDue,
       paymentMethod: "Cash",
       paidDate: format(new Date(), "yyyy-MM-dd"),
+    });
+    setIsPaymentDialogOpen(true);
+  };
+
+  const handleLastMonthPayment = (customer: CustomerPaymentInfo) => {
+    setSelectedCustomer(customer);
+    setIsLastMonthPayment(true);
+    setNewPayment({
+      customerId: customer.customer.id,
+      amount: customer.lastMonthDue,
+      paymentMethod: "Cash",
+      paidDate: format(new Date(), "yyyy-MM-dd"),
+      notes: "Payment for last month bill",
     });
     setIsPaymentDialogOpen(true);
   };
@@ -415,14 +370,14 @@ export default function Payments() {
       // Show customers with last month data
       baseCustomers = customers.filter(c => c.lastMonthAmount > 0);
     } else if (activeTab === "overdue") {
-      // Show customers who haven't paid current month, last month, or have earlier dues
+      // Show customers who are overdue
       baseCustomers = customers.filter(c => c.isOverdue && c.totalDue > 0);
     }
 
     // Apply search and status filters
     return baseCustomers.filter((customer) => {
-      const matchesSearch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           customer.phone.includes(searchTerm);
+      const matchesSearch = customer.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           customer.customer.phone.includes(searchTerm);
       const matchesStatus = filterStatus === "all" || customer.paymentStatus === filterStatus;
       return matchesSearch && matchesStatus;
     });
@@ -431,7 +386,7 @@ export default function Payments() {
   const filteredCustomers = getFilteredCustomers();
 
   const filteredPayments = payments.filter((payment) => {
-    const customer = customers.find(c => c.id === payment.customerId);
+    const customer = allCustomers.find(c => c.id === payment.customerId);
     const customerName = customer?.name || '';
     const matchesSearch = customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          customer?.phone.includes(searchTerm);
@@ -652,11 +607,11 @@ export default function Payments() {
                     </TableHeader>
                     <TableBody>
                       {filteredCustomers.map((customer) => (
-                        <TableRow key={customer.id}>
+                        <TableRow key={customer.customer.id}>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{customer.name}</div>
-                              <div className="text-sm text-muted-foreground">{customer.phone}</div>
+                              <div className="font-medium">{customer.customer.name}</div>
+                              <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -698,9 +653,9 @@ export default function Payments() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {customer.lastPaymentDate ? (
+                            {customer.customer.lastPayment ? (
                               <span className="text-sm">
-                                {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
+                                {format(new Date(customer.customer.lastPayment), "MMM dd, yyyy")}
                               </span>
                             ) : (
                               <span className="text-muted-foreground text-sm">No payments</span>
@@ -717,14 +672,14 @@ export default function Payments() {
                                 <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
                                 <DropdownMenuItem 
                                   onClick={() => handleSendBill(customer)}
-                                  disabled={generatingBill === customer.id}
+                                  disabled={generatingBill === customer.customer.id}
                                 >
-                                  {generatingBill === customer.id ? (
+                                  {generatingBill === customer.customer.id ? (
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                   ) : (
                                     <FileText className="h-4 w-4 mr-2" />
                                   )}
-                                  {generatingBill === customer.id ? 'Generating...' : 'Send Bill via WhatsApp'}
+                                  {generatingBill === customer.customer.id ? 'Generating...' : 'Send Bill via WhatsApp'}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
                                   <CreditCard className="h-4 w-4 mr-2" />
@@ -783,11 +738,11 @@ export default function Payments() {
                                               customer.lastMonthPaid > 0 ? 'partial' : 'pending';
 
                         return (
-                          <TableRow key={customer.id}>
+                          <TableRow key={customer.customer.id}>
                             <TableCell>
                               <div>
-                                <div className="font-medium">{customer.name}</div>
-                                <div className="text-sm text-muted-foreground">{customer.phone}</div>
+                                <div className="font-medium">{customer.customer.name}</div>
+                              <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                               </div>
                             </TableCell>
                             <TableCell>
@@ -816,9 +771,9 @@ export default function Payments() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              {customer.lastPaymentDate ? (
+                              {customer.customer.lastPayment ? (
                                 <span className="text-sm">
-                                  {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
+                                  {format(new Date(customer.customer.lastPayment), "MMM dd, yyyy")}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground text-sm">No payments</span>
@@ -833,7 +788,18 @@ export default function Payments() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
+                                  <DropdownMenuItem
+                                    onClick={() => handleSendLastMonthBill(customer)}
+                                    disabled={generatingBill === customer.customer.id || customer.lastMonthAmount <= 0}
+                                  >
+                                    {generatingBill === customer.customer.id ? (
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <FileText className="h-4 w-4 mr-2" />
+                                    )}
+                                    {generatingBill === customer.customer.id ? 'Generating...' : 'Send Bill via WhatsApp'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleLastMonthPayment(customer)}>
                                     <CreditCard className="h-4 w-4 mr-2" />
                                     Record Cash Payment
                                   </DropdownMenuItem>
@@ -885,16 +851,16 @@ export default function Payments() {
                     </TableHeader>
                     <TableBody>
                       {filteredCustomers.map((customer) => {
-                        const daysSinceLastPayment = customer.lastPaymentDate ?
-                          Math.floor((new Date().getTime() - new Date(customer.lastPaymentDate).getTime()) / (1000 * 60 * 60 * 24)) :
+                        const daysSinceLastPayment = customer.customer.lastPayment ?
+                          Math.floor((new Date().getTime() - new Date(customer.customer.lastPayment).getTime()) / (1000 * 60 * 60 * 24)) :
                           999;
 
                         return (
-                          <TableRow key={customer.id}>
+                          <TableRow key={customer.customer.id}>
                             <TableCell>
                               <div>
-                                <div className="font-medium">{customer.name}</div>
-                                <div className="text-sm text-muted-foreground">{customer.phone}</div>
+                                <div className="font-medium">{customer.customer.name}</div>
+                              <div className="text-sm text-muted-foreground">{customer.customer.phone}</div>
                               </div>
                             </TableCell>
                             <TableCell>
@@ -907,10 +873,10 @@ export default function Payments() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {customer.lastPaymentDate ? (
+                              {customer.customer.lastPayment ? (
                                 <div>
                                   <span className="text-sm">
-                                    {format(new Date(customer.lastPaymentDate), "MMM dd, yyyy")}
+                                    {format(new Date(customer.customer.lastPayment), "MMM dd, yyyy")}
                                   </span>
                                   <div className="text-xs text-muted-foreground">
                                     ₹{(customer.lastMonthPaid || 0) + (customer.currentMonthPaid || 0)}
@@ -942,14 +908,14 @@ export default function Payments() {
                                   <DropdownMenuLabel>Payment Actions</DropdownMenuLabel>
                                   <DropdownMenuItem
                                     onClick={() => handleSendBill(customer)}
-                                    disabled={generatingBill === customer.id}
+                                    disabled={generatingBill === customer.customer.id}
                                   >
-                                    {generatingBill === customer.id ? (
+                                    {generatingBill === customer.customer.id ? (
                                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                     ) : (
                                       <FileText className="h-4 w-4 mr-2" />
                                     )}
-                                    {generatingBill === customer.id ? 'Sending...' : 'Send Bill via WhatsApp'}
+                                    {generatingBill === customer.customer.id ? 'Sending...' : 'Send Bill via WhatsApp'}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleQuickPayment(customer)}>
                                     <CreditCard className="h-4 w-4 mr-2" />
@@ -996,7 +962,7 @@ export default function Payments() {
                     </TableHeader>
                     <TableBody>
                       {filteredPayments.map((payment) => {
-                        const customer = customers.find(c => c.id === payment.customerId);
+                        const customer = allCustomers.find(c => c.id === payment.customerId);
                         return (
                           <TableRow key={payment.id}>
                             <TableCell>
@@ -1080,12 +1046,17 @@ export default function Payments() {
         </Card>
 
         {/* Payment Recording Dialog */}
-        <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <Dialog open={isPaymentDialogOpen} onOpenChange={(open) => {
+          setIsPaymentDialogOpen(open);
+          if (!open) setIsLastMonthPayment(false);
+        }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Record Cash Payment</DialogTitle>
+              <DialogTitle>
+                Record Cash Payment {isLastMonthPayment ? '- Last Month' : '- Current Month'}
+              </DialogTitle>
               <DialogDescription>
-                Record a cash payment received from {selectedCustomer?.name}. Online payments are automatically updated.
+                Record a cash payment received from {selectedCustomer?.customer.name} for {isLastMonthPayment ? format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "MMMM yyyy") : format(new Date(), "MMMM yyyy")}. Online payments are automatically updated.
               </DialogDescription>
             </DialogHeader>
 
@@ -1093,18 +1064,37 @@ export default function Payments() {
               <div className="space-y-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Current Month Amount:</span>
-                      <span>₹{selectedCustomer.currentMonthAmount.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Pending Dues:</span>
-                      <span>₹{selectedCustomer.pendingDues.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between font-medium border-t pt-2">
-                      <span>Total Due:</span>
-                      <span>₹{selectedCustomer.totalDue.toLocaleString()}</span>
-                    </div>
+                    {isLastMonthPayment ? (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span>Last Month Bill:</span>
+                          <span>₹{selectedCustomer.lastMonthAmount.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Already Paid:</span>
+                          <span className="text-green-600">₹{selectedCustomer.lastMonthPaid.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-medium border-t pt-2">
+                          <span>Remaining Due:</span>
+                          <span className="text-warning">₹{Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid).toLocaleString()}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span>Current Month Amount:</span>
+                          <span>₹{selectedCustomer.currentMonthAmount.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Pending Dues:</span>
+                          <span>₹{selectedCustomer.pendingDues.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-medium border-t pt-2">
+                          <span>Total Due:</span>
+                          <span>₹{selectedCustomer.totalDue.toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1146,26 +1136,45 @@ export default function Payments() {
                     onChange={(e) => setNewPayment({...newPayment, notes: e.target.value})}
                     placeholder="Additional notes..."
                   />
-                  {newPayment.amount > 0 && newPayment.amount < selectedCustomer?.totalDue && (
-                    <div className="p-3 bg-info/10 border border-info/20 rounded-lg">
-                      <div className="flex items-center gap-2 text-info">
-                        <AlertTriangle className="h-4 w-4" />
-                        <span className="font-medium">Partial Payment</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Remaining balance: ₹{((selectedCustomer?.totalDue || 0) - newPayment.amount).toLocaleString()}
-                      </p>
-                    </div>
+                  {newPayment.amount > 0 && (
+                    isLastMonthPayment ? (
+                      newPayment.amount < Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid) && (
+                        <div className="p-3 bg-info/10 border border-info/20 rounded-lg">
+                          <div className="flex items-center gap-2 text-info">
+                            <AlertTriangle className="h-4 w-4" />
+                            <span className="font-medium">Partial Payment</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Remaining last month balance: ₹{(Math.max(0, selectedCustomer.lastMonthAmount - selectedCustomer.lastMonthPaid) - newPayment.amount).toLocaleString()}
+                          </p>
+                        </div>
+                      )
+                    ) : (
+                      newPayment.amount < selectedCustomer?.totalDue && (
+                        <div className="p-3 bg-info/10 border border-info/20 rounded-lg">
+                          <div className="flex items-center gap-2 text-info">
+                            <AlertTriangle className="h-4 w-4" />
+                            <span className="font-medium">Partial Payment</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Remaining balance: ₹{((selectedCustomer?.totalDue || 0) - newPayment.amount).toLocaleString()}
+                          </p>
+                        </div>
+                      )
+                    )
                   )}
                 </div>
 
                 <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
+                  <Button variant="outline" onClick={() => {
+                    setIsPaymentDialogOpen(false);
+                    setIsLastMonthPayment(false);
+                  }}>
                     Cancel
                   </Button>
                   <Button onClick={handleRecordPayment} disabled={submitting || newPayment.amount <= 0}>
                     {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Record Cash Payment
+                    {isLastMonthPayment ? 'Record Last Month Payment' : 'Record Cash Payment'}
                   </Button>
                 </div>
               </div>

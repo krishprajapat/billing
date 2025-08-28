@@ -1,6 +1,7 @@
 import { RequestHandler } from "express";
 import { ApiResponse } from "@shared/api";
 import Razorpay from 'razorpay';
+import { db } from '../database/models';
 
 interface CreatePaymentLinkRequest {
   amount: number; // Amount in rupees
@@ -75,6 +76,7 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
       reminder_enable: true,
       notes: {
         reference_id,
+        customer_id: customer.contact, // Store customer info for webhook processing
         ...notes
       },
       callback_url: `${process.env.BASE_URL || 'http://localhost:8080'}/api/razorpay/callback`,
@@ -180,9 +182,65 @@ export const handlePaymentCallback: RequestHandler = (req, res) => {
         reference_id: paymentLink.reference_id
       });
 
-      // TODO: Update payment status in database
-      // This will be implemented when we update the payment system
-      // to automatically handle online payments
+      // Extract customer information from reference_id
+      // Expected format: BILL-{customerId}-{month}{year}
+      const referenceId = paymentLink.reference_id || '';
+      const parts = referenceId.split('-');
+
+      if (parts.length >= 3 && parts[0] === 'BILL') {
+        const customerId = parseInt(parts[1]);
+        const monthYear = parts[2];
+
+        if (!isNaN(customerId)) {
+          const customer = db.getCustomerById(customerId);
+
+          if (customer) {
+            // Create payment record
+            const amountInRupees = payment.amount / 100; // Convert from paise to rupees
+            const paymentDate = new Date(payment.created_at * 1000); // Convert from Unix timestamp
+
+            // Determine month and year from reference or use current
+            let month: string;
+            let year: number;
+
+            if (monthYear && monthYear.length >= 6) {
+              // Extract month and year from monthYear string (e.g., "012025" -> January 2025)
+              const monthNum = parseInt(monthYear.substring(0, 2));
+              year = parseInt(monthYear.substring(2));
+              month = new Date(year, monthNum - 1).toLocaleString('default', { month: 'long' });
+            } else {
+              // Fallback to current date
+              month = paymentDate.toLocaleString('default', { month: 'long' });
+              year = paymentDate.getFullYear();
+            }
+
+            const paymentRecord = db.createPayment({
+              customerId: customerId,
+              amount: amountInRupees,
+              paymentMethod: 'UPI', // Razorpay payments are typically UPI/Card
+              status: 'paid',
+              month: month,
+              year: year,
+              dueDate: paymentDate.toISOString().split('T')[0],
+              paidDate: paymentDate.toISOString().split('T')[0],
+              notes: `Online payment via Razorpay. Payment ID: ${payment.id}, Link ID: ${paymentLink.id}`,
+            });
+
+            console.log('Payment record created:', {
+              paymentId: paymentRecord.id,
+              customerId: customerId,
+              amount: amountInRupees,
+              customer: customer.name
+            });
+          } else {
+            console.error('Customer not found for ID:', customerId);
+          }
+        } else {
+          console.error('Invalid customer ID in reference:', referenceId);
+        }
+      } else {
+        console.error('Invalid reference_id format:', referenceId);
+      }
     }
 
     res.json({
