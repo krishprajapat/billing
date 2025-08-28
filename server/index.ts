@@ -68,9 +68,14 @@ import {
   generateQuantityLink,
   getCustomerByToken,
   updateQuantityByToken,
-  processEndOfDay,
   getDailyTotals
 } from "./routes/daily";
+import {
+  createPaymentLink,
+  getPaymentLink,
+  handlePaymentCallback,
+  cancelPaymentLink
+} from "./routes/razorpay";
 
 export function createServer() {
   const app = express();
@@ -141,8 +146,13 @@ export function createServer() {
   app.get("/api/daily/quantity-link/:customerId", generateQuantityLink);
   app.get("/api/daily/customer/:token", getCustomerByToken);
   app.put("/api/daily/customer/:token/quantity", updateQuantityByToken);
-  app.post("/api/daily/end-of-day", processEndOfDay);
   app.get("/api/daily/totals", getDailyTotals);
+
+  // Razorpay routes
+  app.post("/api/razorpay/payment-links", createPaymentLink);
+  app.get("/api/razorpay/payment-links/:linkId", getPaymentLink);
+  app.post("/api/razorpay/webhook", handlePaymentCallback);
+  app.post("/api/razorpay/payment-links/:linkId/cancel", cancelPaymentLink);
 
   return app;
 }

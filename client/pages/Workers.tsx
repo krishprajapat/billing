@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -36,13 +35,9 @@ import {
   Phone,
   MapPin,
   Users,
-  IndianRupee,
   Truck,
   CheckCircle,
   XCircle,
-  TrendingUp,
-  Clock,
-  Star,
   UserCheck,
   Loader2,
   AlertCircle,
@@ -78,6 +73,8 @@ export default function Workers() {
   });
   const [editWorker, setEditWorker] = useState<UpdateWorkerRequest>({});
   const [submitting, setSubmitting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -203,10 +200,19 @@ export default function Workers() {
     }
   };
 
-  const handleDeleteWorker = async (id: number) => {
+  const handleDeleteWorker = (worker: Worker) => {
+    setWorkerToDelete(worker);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteWorker = async () => {
+    if (!workerToDelete) return;
+
     try {
-      await workerApi.delete(id);
-      setWorkers(workers.filter(w => w.id !== id));
+      await workerApi.delete(workerToDelete.id);
+      setWorkers(workers.filter(w => w.id !== workerToDelete.id));
+      setIsDeleteDialogOpen(false);
+      setWorkerToDelete(null);
     } catch (err) {
       console.error('Failed to delete worker:', err);
       setError(err instanceof ApiError ? err.message : 'Failed to delete worker');
@@ -294,10 +300,6 @@ export default function Workers() {
 
   // Calculate statistics
   const totalActiveWorkers = workers.filter(w => w.status === "active").length;
-  const totalRevenue = workers.reduce((sum, w) => sum + (w.monthlyRevenue || 0), 0);
-  const averageEfficiency = workers.length > 0
-    ? workers.reduce((sum, w) => sum + (w.efficiency || 0), 0) / workers.length
-    : 0;
 
   if (loading) {
     return (
@@ -409,7 +411,9 @@ export default function Workers() {
                     <div className="space-y-2">
                       <Label>Select Customers to Assign</Label>
                       <div className="max-h-60 overflow-y-auto border rounded-md p-3 space-y-2">
-                        {availableCustomers.map((customer) => (
+                        {availableCustomers
+                          .filter(customer => !selectedWorker || customer.areaId === selectedWorker.areaId)
+                          .map((customer) => (
                           <div key={customer.id} className="flex items-center space-x-2">
                             <input
                               type="checkbox"
@@ -426,13 +430,18 @@ export default function Workers() {
                             />
                             <label htmlFor={`customer-${customer.id}`} className="text-sm flex-1 cursor-pointer">
                               <div className="font-medium">{customer.name}</div>
-                              <div className="text-muted-foreground">{customer.area} - {customer.dailyQuantity}L/day</div>
+                              <div className="text-muted-foreground">{customer.areaName} - {customer.dailyQuantity}L/day</div>
                             </label>
                           </div>
                         ))}
-                        {availableCustomers.length === 0 && (
+                        {selectedWorker && availableCustomers.filter(customer => customer.areaId === selectedWorker.areaId).length === 0 && (
                           <div className="text-sm text-muted-foreground text-center py-4">
-                            No available customers to assign
+                            No customers available in {selectedWorker.areaName || 'this area'}
+                          </div>
+                        )}
+                        {!selectedWorker && (
+                          <div className="text-sm text-muted-foreground text-center py-4">
+                            Please select a worker first
                           </div>
                         )}
                       </div>
@@ -714,7 +723,7 @@ export default function Workers() {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid gap-6 md:grid-cols-4">
+        <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Workers</CardTitle>
@@ -737,32 +746,6 @@ export default function Workers() {
               <div className="text-2xl font-bold">{workers.reduce((sum, w) => sum + (w.customersAssigned || 0), 0)}</div>
               <p className="text-xs text-muted-foreground">
                 Total customer assignments
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Revenue</CardTitle>
-              <IndianRupee className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">₹{totalRevenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">
-                Daily totals accumulated (active workers)
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Efficiency</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{averageEfficiency.toFixed(1)}%</div>
-              <p className="text-xs text-muted-foreground">
-                Team performance average
               </p>
             </CardContent>
           </Card>
@@ -807,8 +790,6 @@ export default function Workers() {
                     <TableHead>Contact</TableHead>
                     <TableHead>Route/Area</TableHead>
                     <TableHead>Customers</TableHead>
-                    <TableHead>Performance</TableHead>
-                    <TableHead>Revenue (Daily Totals)</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -819,10 +800,6 @@ export default function Workers() {
                       <TableCell>
                         <div>
                           <div className="font-medium">{worker.name}</div>
-                          <div className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                            {worker.rating}
-                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -843,27 +820,7 @@ export default function Workers() {
                       <TableCell>
                         <div>
                           <div className="font-medium">{worker.customersAssigned}</div>
-                          {worker.status === "active" && (
-                            <div className="text-xs text-muted-foreground">
-                              {worker.onTimeDeliveries}/{worker.totalDeliveries} on-time
-                            </div>
-                          )}
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        {worker.status === "active" && worker.efficiency > 0 ? (
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <Progress value={worker.efficiency} className="h-2 w-16" />
-                              <span className="text-sm font-medium">{worker.efficiency}%</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">₹{(worker.monthlyRevenue || 0).toLocaleString()}</div>
                       </TableCell>
                       <TableCell>
                         <Badge variant={worker.status === "active" ? "default" : "secondary"}>
@@ -892,10 +849,6 @@ export default function Workers() {
                               <Users className="h-4 w-4 mr-2" />
                               Manage Customers
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Clock className="h-4 w-4 mr-2" />
-                              View Performance
-                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleToggleStatus(worker)}>
                               {worker.status === "active" ? (
                                 <>
@@ -910,9 +863,9 @@ export default function Workers() {
                               )}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => handleDeleteWorker(worker.id)}
+                              onClick={() => handleDeleteWorker(worker)}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
@@ -935,6 +888,27 @@ export default function Workers() {
             )}
           </CardContent>
         </Card>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Worker</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete <strong>{workerToDelete?.name}</strong>? This action cannot be undone and will remove all worker records and unassign their customers.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={confirmDeleteWorker} disabled={submitting}>
+                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Delete Worker
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

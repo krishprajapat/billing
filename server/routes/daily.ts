@@ -249,35 +249,6 @@ export const updateQuantityByToken: RequestHandler = (req, res) => {
   }
 };
 
-// Process end of day
-export const processEndOfDay: RequestHandler = (req, res) => {
-  try {
-    const { date } = req.body;
-    
-    if (!date) {
-      return res.status(400).json({
-        success: false,
-        error: 'Date is required',
-      });
-    }
-
-    const eodProcess = db.processEndOfDay(date);
-
-    const response: ApiResponse<any> = {
-      success: true,
-      data: eodProcess,
-      message: 'End of day processing completed successfully',
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error('Error processing end of day:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process end of day',
-    });
-  }
-};
 
 // Calculate daily totals
 export const getDailyTotals: RequestHandler = (req, res) => {

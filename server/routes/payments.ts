@@ -24,7 +24,7 @@ export const recordPayment: RequestHandler = (req, res) => {
     const paymentData: RecordPaymentRequest = req.body;
     
     // Basic validation
-    if (!paymentData.customerId || !paymentData.amount || !paymentData.paymentMethod) {
+    if (!paymentData.customerId || paymentData.amount === undefined || paymentData.amount === null || !paymentData.paymentMethod) {
       const response: ApiResponse = {
         success: false,
         error: "Customer ID, amount, and payment method are required",
@@ -57,7 +57,7 @@ export const recordPayment: RequestHandler = (req, res) => {
     const response: ApiResponse<Payment> = {
       success: true,
       data: payment,
-      message: "Payment recorded successfully",
+      message: paymentData.amount < 0 ? "Deduction applied successfully" : "Payment recorded successfully",
     };
     res.status(201).json(response);
   } catch (error) {

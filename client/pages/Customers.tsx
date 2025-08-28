@@ -45,8 +45,10 @@ import {
   MessageSquare,
   Loader2,
   AlertCircle,
+  Clock,
 } from "lucide-react";
-import { customerApi, workerApi, dailyApi, areaApi, ApiError } from "@/lib/api-client";
+import { customerApi, workerApi, areaApi, dailyApi, ApiError } from "@/lib/api-client";
+import { PDFBillGenerator, shareViaWhatsApp, generateRazorpayPaymentLink, BillData, BusinessInfo } from "@/lib/pdf-generator";
 import { Customer, CreateCustomerRequest, UpdateCustomerRequest, Worker, Area } from "../../shared/api";
 
 export default function Customers() {
@@ -58,7 +60,10 @@ export default function Customers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterArea, setFilterArea] = useState("all");
+  const [filterWorker, setFilterWorker] = useState("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [newCustomer, setNewCustomer] = useState<CreateCustomerRequest>({
@@ -73,10 +78,68 @@ export default function Customers() {
   });
   const [editCustomer, setEditCustomer] = useState<UpdateCustomerRequest>({});
   const [submitting, setSubmitting] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [generatingBill, setGeneratingBill] = useState<number | null>(null);
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    // Update current time every minute
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Check if current time is between 6 PM and 10 PM
+  const isValidTimeWindow = () => {
+    const hour = currentTime.getHours();
+    return hour >= 18 && hour < 22; // 6 PM to 10 PM
+  };
+
+  // Get time status message
+  const getTimeStatus = () => {
+    const hour = currentTime.getHours();
+    if (hour < 18) {
+      return {
+        message: `Quantity changes will be available at 6:00 PM (in ${18 - hour} hours)`,
+        type: 'info' as const,
+      };
+    } else if (hour >= 22) {
+      return {
+        message: 'Quantity changes are closed for today. Try again tomorrow between 6:00 PM - 10:00 PM',
+        type: 'warning' as const,
+      };
+    } else {
+      const minutesLeft = (22 - hour - 1) * 60 + (60 - currentTime.getMinutes());
+      return {
+        message: `You can change milk quantity. Time remaining: ${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}m`,
+        type: 'success' as const,
+      };
+    }
+  };
+
+  // Calculate new monthly amount with remaining days logic
+  const calculateNewMonthlyAmount = (customer: Customer, newQuantity: number, newRate: number) => {
+    if (!customer) return 0;
+
+    const currentMonthlyAmount = customer.monthlyAmount || 0;
+    const currentDaysDelivered = customer.currentMonthDeliveries || 0;
+
+    // Get remaining days in current month
+    const today = new Date();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const remainingDays = daysInMonth - currentDaysDelivered;
+
+    // Current amount + (remaining days × new rate per day)
+    const dailyRate = newQuantity * newRate;
+    const additionalAmount = remainingDays * dailyRate;
+
+    return currentMonthlyAmount + additionalAmount;
+  };
 
   // Reset worker selection when area changes in new customer form
   useEffect(() => {
@@ -126,8 +189,11 @@ export default function Customers() {
                          customer.address.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === "all" || customer.status === filterStatus;
     const matchesArea = filterArea === "all" || customer.areaId.toString() === filterArea;
+    const matchesWorker = filterWorker === "all" ||
+                         (filterWorker === "unassigned" && (!customer.workerId || customer.workerId === 0)) ||
+                         (filterWorker === "assigned" && customer.workerId && customer.workerId > 0);
 
-    return matchesSearch && matchesStatus && matchesArea;
+    return matchesSearch && matchesStatus && matchesArea && matchesWorker;
   });
 
   const handleAddCustomer = async () => {
@@ -212,10 +278,19 @@ export default function Customers() {
     }
   };
 
-  const handleDeleteCustomer = async (id: number) => {
+  const handleDeleteCustomer = (customer: Customer) => {
+    setCustomerToDelete(customer);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteCustomer = async () => {
+    if (!customerToDelete) return;
+
     try {
-      await customerApi.delete(id);
-      setCustomers(customers.filter(c => c.id !== id));
+      await customerApi.delete(customerToDelete.id);
+      setCustomers(customers.filter(c => c.id !== customerToDelete.id));
+      setIsDeleteDialogOpen(false);
+      setCustomerToDelete(null);
     } catch (err) {
       console.error('Failed to delete customer:', err);
       setError(err instanceof ApiError ? err.message : 'Failed to delete customer');
@@ -235,22 +310,81 @@ export default function Customers() {
     }
   };
 
-  const handleGenerateQuantityLink = async (customer: Customer) => {
+  const handleSendBill = async (customer: Customer) => {
     try {
-      const linkData = await dailyApi.generateQuantityLink(customer.id);
-      const baseUrl = window.location.origin;
-      const customerLink = `${baseUrl}/customer/${linkData.uniqueToken}`;
+      setGeneratingBill(customer.id);
 
-      // Copy to clipboard
-      await navigator.clipboard.writeText(customerLink);
+      // Get current month's delivery data
+      const currentDate = new Date();
+      const currentMonth = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+      const currentYear = currentDate.getFullYear();
 
-      // Show success message (you could use a toast here)
-      alert(`Customer link copied to clipboard!\n\nLink: ${customerLink}\n\nShare this link with ${customer.name} to allow them to change their milk quantity for tomorrow.`);
+      // Get daily deliveries for this customer for current month
+      const deliveries = await dailyApi.getDeliveries({
+        customerId: customer.id,
+      });
+
+      // Filter deliveries for current month
+      const currentMonthDeliveries = deliveries.filter(delivery => {
+        const deliveryDate = new Date(delivery.date);
+        return deliveryDate.getMonth() === currentDate.getMonth() &&
+               deliveryDate.getFullYear() === currentYear;
+      });
+
+      // Transform delivery data for PDF
+      const billDeliveries = currentMonthDeliveries.map(delivery => ({
+        date: delivery.date,
+        quantity: delivery.quantityDelivered,
+        rate: delivery.ratePerLiter,
+        amount: delivery.dailyAmount
+      }));
+
+      // Generate Razorpay payment link
+      const billNumber = `BILL-${customer.id}-${currentMonth}${currentYear}`;
+      const totalAmount = (customer.currentMonthAmount || 0) + (customer.pendingDues || 0);
+      const paymentLink = await generateRazorpayPaymentLink(
+        totalAmount,
+        customer.name,
+        customer.phone,
+        billNumber
+      );
+
+      // Prepare bill data
+      const billData: BillData = {
+        customer,
+        dailyDeliveries: billDeliveries,
+        currentMonthAmount: customer.currentMonthAmount || 0,
+        pendingDues: customer.pendingDues || 0,
+        totalAmount,
+        billMonth: `${currentMonth}/${currentYear}`,
+        billNumber,
+        razorpayPaymentLink: paymentLink
+      };
+
+      // Business information (this would typically come from settings)
+      const businessInfo: BusinessInfo = {
+        name: "MilkFlow Delivery Service",
+        address: "123 Main Street, City, State - 123456",
+        phone: "+91 98765 43210",
+        email: "contact@milkflow.com",
+        gst: "29XXXXX1234X1ZX"
+      };
+
+      // Generate PDF
+      const pdfGenerator = new PDFBillGenerator();
+      const pdfBlob = await pdfGenerator.generateBill(billData, businessInfo);
+
+      // Share via WhatsApp
+      shareViaWhatsApp(customer.phone, pdfBlob, customer.name, totalAmount);
+
     } catch (err) {
-      console.error('Failed to generate customer link:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to generate customer link');
+      console.error('Failed to generate bill:', err);
+      setError(err instanceof ApiError ? err.message : 'Failed to generate bill');
+    } finally {
+      setGeneratingBill(null);
     }
   };
+
 
   // Calculate statistics based on daily billing
   const totalActiveCustomers = customers.filter(c => c.status === "active").length;
@@ -442,7 +576,7 @@ export default function Customers() {
                     Estimated Monthly Amount: ₹{(newCustomer.dailyQuantity * newCustomer.ratePerLiter * 30).toLocaleString()}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Actual amount will be calculated from daily deliveries
+                    Actual amount will be calculated from daily deliveries and customer quantity changes
                   </p>
                 </div>
               </div>
@@ -532,6 +666,12 @@ export default function Customers() {
                     </Select>
                   </div>
                 </div>
+                {/* Time Status for Quantity Changes */}
+                <Alert variant={getTimeStatus().type === 'success' ? 'default' : getTimeStatus().type === 'warning' ? 'destructive' : 'default'}>
+                  <Clock className="h-4 w-4" />
+                  <AlertDescription>{getTimeStatus().message}</AlertDescription>
+                </Alert>
+
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="editQuantity">Daily Quantity (Liters)</Label>
@@ -542,7 +682,13 @@ export default function Customers() {
                       min="0.5"
                       value={editCustomer.dailyQuantity || ""}
                       onChange={(e) => setEditCustomer({...editCustomer, dailyQuantity: parseFloat(e.target.value)})}
+                      disabled={!isValidTimeWindow()}
                     />
+                    {!isValidTimeWindow() && (
+                      <p className="text-xs text-muted-foreground">
+                        Quantity changes only allowed between 6:00 PM - 10:00 PM
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editRate">Rate per Liter (₹)</Label>
@@ -569,10 +715,22 @@ export default function Customers() {
                 <div className="pt-4 space-y-1">
                   <p className="text-sm text-muted-foreground">
                     Current Monthly Amount: ₹{(editingCustomer?.monthlyAmount || 0).toLocaleString()}
-                    <span className="text-xs ml-2">({editingCustomer?.currentMonthDeliveries || 0} days)</span>
+                    <span className="text-xs ml-2">({editingCustomer?.currentMonthDeliveries || 0} days delivered)</span>
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Estimated Monthly (with changes): ₹{((editCustomer.dailyQuantity || 0) * (editCustomer.ratePerLiter || 0) * 30).toLocaleString()}
+                  {editingCustomer && editCustomer.dailyQuantity && editCustomer.ratePerLiter && (
+                    <p className="text-sm text-muted-foreground">
+                      New Monthly Amount (with changes): ₹{calculateNewMonthlyAmount(
+                        editingCustomer,
+                        editCustomer.dailyQuantity,
+                        editCustomer.ratePerLiter
+                      ).toLocaleString()}
+                      <span className="text-xs ml-2">
+                        (Current + remaining days at new rate)
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Changes affect only remaining days in this month
                   </p>
                 </div>
               </div>
@@ -623,7 +781,7 @@ export default function Customers() {
               <IndianRupee className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-warning">₹{totalPendingDues.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-warning">��{totalPendingDues.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">
                 Needs collection
               </p>
@@ -669,6 +827,16 @@ export default function Customers() {
                   {areas.map((area) => (
                     <SelectItem key={area.id} value={area.id.toString()}>{area.name}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterWorker} onValueChange={setFilterWorker}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Worker" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Workers</SelectItem>
+                  <SelectItem value="assigned">Assigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -753,13 +921,16 @@ export default function Customers() {
                               <Edit className="h-4 w-4 mr-2" />
                               Edit Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <MessageSquare className="h-4 w-4 mr-2" />
-                              Send Bill
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleGenerateQuantityLink(customer)}>
-                              <Milk className="h-4 w-4 mr-2" />
-                              Generate Quantity Link
+                            <DropdownMenuItem
+                              onClick={() => handleSendBill(customer)}
+                              disabled={generatingBill === customer.id}
+                            >
+                              {generatingBill === customer.id ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <MessageSquare className="h-4 w-4 mr-2" />
+                              )}
+                              {generatingBill === customer.id ? 'Generating Bill...' : 'Send Bill'}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleToggleStatus(customer)}>
                               {customer.status === "active" ? (
@@ -775,9 +946,9 @@ export default function Customers() {
                               )}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => handleDeleteCustomer(customer.id)}
+                              onClick={() => handleDeleteCustomer(customer)}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
                               Delete
@@ -800,6 +971,27 @@ export default function Customers() {
             )}
           </CardContent>
         </Card>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Customer</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete <strong>{customerToDelete?.name}</strong>? This action cannot be undone and will remove all delivery history and billing records.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={confirmDeleteCustomer} disabled={submitting}>
+                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Delete Customer
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

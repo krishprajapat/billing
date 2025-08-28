@@ -21,7 +21,6 @@ import {
   CustomerQuantityLink,
   CreateDailyDeliveryRequest,
   UpdateDailyQuantityRequest,
-  EndOfDayProcess,
   Area,
   CreateAreaRequest,
   UpdateAreaRequest
@@ -267,12 +266,6 @@ export const dailyApi = {
       body: JSON.stringify(data),
     }),
 
-  // End of day processing
-  processEndOfDay: (date: string): Promise<EndOfDayProcess> =>
-    apiRequest<EndOfDayProcess>('/daily/end-of-day', {
-      method: 'POST',
-      body: JSON.stringify({ date }),
-    }),
 
   // Daily totals
   getDailyTotals: (date: string): Promise<{ totalRevenue: number; totalMilk: number; customerCount: number }> =>
@@ -302,6 +295,40 @@ export const areaApi = {
   delete: (id: number): Promise<void> =>
     apiRequest<void>(`/areas/${id}`, {
       method: 'DELETE',
+    }),
+};
+
+// Razorpay API
+export const razorpayApi = {
+  createPaymentLink: (data: {
+    amount: number;
+    customer: { name: string; contact: string; email?: string };
+    description: string;
+    reference_id: string;
+    expire_by?: number;
+    notes?: Record<string, string>;
+  }): Promise<{
+    id: string;
+    short_url: string;
+    reference_id: string;
+    status: string;
+    amount: number;
+    customer: { name: string; contact: string; email?: string };
+    description: string;
+    expire_by?: number;
+    created_at: number;
+  }> =>
+    apiRequest('/razorpay/payment-links', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getPaymentLink: (linkId: string) =>
+    apiRequest(`/razorpay/payment-links/${linkId}`),
+
+  cancelPaymentLink: (linkId: string) =>
+    apiRequest(`/razorpay/payment-links/${linkId}/cancel`, {
+      method: 'POST',
     }),
 };
 

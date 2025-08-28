@@ -6,7 +6,6 @@ import {
   DailyDelivery,
   DailyQuantity,
   DailyBilling,
-  EndOfDayProcess,
   CustomerQuantityLink,
   User,
   BusinessSettings,
@@ -31,7 +30,6 @@ class Database {
   private dailyDeliveries: DailyDelivery[] = [];
   private dailyQuantities: DailyQuantity[] = [];
   private dailyBillings: DailyBilling[] = [];
-  private endOfDayProcesses: EndOfDayProcess[] = [];
   private customerQuantityLinks: CustomerQuantityLink[] = [];
   private users: User[] = [];
   private areas: Area[] = [];
@@ -46,7 +44,6 @@ class Database {
   private nextDeliveryId = 1;
   private nextQuantityId = 1;
   private nextBillingId = 1;
-  private nextEodId = 1;
   private nextAreaId = 1;
 
   constructor() {
@@ -404,6 +401,17 @@ class Database {
     const worker = data.workerId ? this.workers.find(w => w.id === data.workerId) : null;
     const area = data.areaId ? this.areas.find(a => a.id === data.areaId) : null;
 
+    // Check if quantity is being changed and validate time window
+    if (data.dailyQuantity && data.dailyQuantity !== customer.dailyQuantity) {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const isValidTime = currentHour >= 18 && currentHour < 22; // 6 PM to 10 PM
+
+      if (!isValidTime) {
+        throw new Error('Quantity changes are only allowed between 6:00 PM and 10:00 PM');
+      }
+    }
+
     // If area is being changed and customer has a worker, check if worker serves the new area
     if (data.areaId && data.areaId !== customer.areaId && customer.workerId > 0) {
       const currentWorker = this.workers.find(w => w.id === customer.workerId);
@@ -414,11 +422,28 @@ class Database {
       }
     }
 
+    // Calculate new monthly amount with partial month logic
+    let newMonthlyAmount = customer.monthlyAmount;
+    if (data.dailyQuantity && data.ratePerLiter &&
+        (data.dailyQuantity !== customer.dailyQuantity || data.ratePerLiter !== customer.ratePerLiter)) {
+
+      // Get remaining days in current month
+      const today = new Date();
+      const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      const currentDaysDelivered = customer.currentMonthDeliveries || 0;
+      const remainingDays = daysInMonth - currentDaysDelivered;
+
+      // Current amount + (remaining days × new rate per day)
+      const newDailyRate = data.dailyQuantity * data.ratePerLiter;
+      const additionalAmount = remainingDays * newDailyRate;
+      newMonthlyAmount = customer.monthlyAmount + additionalAmount;
+    }
+
     this.customers[index] = {
       ...customer,
       ...data,
       areaName: area?.name || customer.areaName,
-      monthlyAmount: (data.dailyQuantity || customer.dailyQuantity) * (data.ratePerLiter || customer.ratePerLiter) * 30,
+      monthlyAmount: newMonthlyAmount,
       workerName: worker?.name || (data.workerId === 0 ? undefined : customer.workerName),
       updatedAt: new Date().toISOString(),
     };
@@ -574,7 +599,9 @@ class Database {
 
     // Update customer pending dues
     if (customer && data.paidDate) {
-      customer.pendingDues = Math.max(0, customer.pendingDues - data.amount);
+      // For positive amounts (payments), reduce pending dues
+      // For negative amounts (deductions), also reduce pending dues (since negative minus negative = reduction)
+      customer.pendingDues = Math.max(0, customer.pendingDues - Math.abs(data.amount));
       customer.lastPayment = data.paidDate;
     }
 
@@ -731,6 +758,24 @@ class Database {
       return false;
     }
 
+    // Check if current time is between 6 PM and 10 PM
+    const now = new Date();
+    const currentHour = now.getHours();
+    const isValidTime = currentHour >= 18 && currentHour < 22; // 6 PM to 10 PM
+
+    if (!isValidTime) {
+      return false; // Changes only allowed between 6 PM to 10 PM
+    }
+
+    // Check if date is for tomorrow only
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+    if (date !== tomorrowStr) {
+      return false; // Can only change quantity for tomorrow
+    }
+
     quantityRecord.requestedQuantity = quantity;
     quantityRecord.requestedAt = new Date().toISOString();
     quantityRecord.updatedAt = new Date().toISOString();
@@ -744,48 +789,6 @@ class Database {
     return true;
   }
 
-  // End of day processing
-  processEndOfDay(date: string): EndOfDayProcess {
-    const deliveries = this.getDailyDeliveries(date);
-    const totalCustomers = new Set(deliveries.map(d => d.customerId)).size;
-    const totalDeliveries = deliveries.length;
-    const totalMilkDelivered = deliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-    const totalRevenue = deliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
-
-    // Lock quantity changes for tomorrow
-    const tomorrow = new Date(date);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-    this.dailyQuantities.forEach(q => {
-      if (q.date === tomorrowStr) {
-        q.isLocked = true;
-        q.lockedAt = new Date().toISOString();
-      }
-    });
-
-    // Update customers' canChangeQuantity status
-    this.customers.forEach(customer => {
-      customer.canChangeQuantity = false;
-    });
-
-    // Add daily revenue to monthly totals
-    this.calculateCustomerMonthlyAmounts();
-
-    const eodProcess: EndOfDayProcess = {
-      id: this.nextEodId++,
-      date,
-      totalCustomers,
-      totalDeliveries,
-      totalMilkDelivered,
-      totalRevenue,
-      processedAt: new Date().toISOString(),
-      status: 'completed',
-    };
-
-    this.endOfDayProcesses.push(eodProcess);
-    return eodProcess;
-  }
 
   // Customer quantity link management
   generateCustomerQuantityLink(customerId: number): CustomerQuantityLink | null {
@@ -796,6 +799,11 @@ class Database {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
+    // Check if current time is between 6 PM and 10 PM
+    const now = new Date();
+    const currentHour = now.getHours();
+    const isValidTime = currentHour >= 18 && currentHour < 22; // 6 PM to 10 PM
+
     const link: CustomerQuantityLink = {
       customerId: customer.id,
       customerName: customer.name,
@@ -803,7 +811,7 @@ class Database {
       nextDayQuantity: customer.nextDayQuantity || customer.dailyQuantity,
       uniqueToken: customer.uniqueLink || this.generateUniqueToken(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
-      canChange: customer.canChangeQuantity !== false,
+      canChange: customer.canChangeQuantity !== false && isValidTime,
     };
 
     // Update or add to customer quantity links

@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { dashboardApi, ApiError } from "@/lib/api-client";
 import { DashboardStats } from "../../shared/api";
-import { EndOfDayProcessor } from "@/components/EndOfDayProcessor";
 
 export default function Index() {
   const navigate = useNavigate();
@@ -54,17 +53,6 @@ export default function Index() {
     window.location.reload();
   };
 
-  const handleProcessComplete = async () => {
-    // Refresh dashboard data after end-of-day processing
-    try {
-      const stats = await dashboardApi.getStats();
-
-      setDashboardStats(stats);
-    } catch (err) {
-      console.error('Failed to refresh dashboard after EOD:', err);
-      // Could show a toast or alert here
-    }
-  };
 
   if (loading) {
     return (
@@ -279,8 +267,6 @@ export default function Index() {
         </div>
 
 
-        {/* End of Day Processing */}
-        <EndOfDayProcessor onProcessComplete={handleProcessComplete} />
       </div>
     </Layout>
   );

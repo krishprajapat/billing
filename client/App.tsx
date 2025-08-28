@@ -13,7 +13,6 @@ import Areas from "./pages/Areas";
 import Payments from "./pages/Payments";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-import CustomerQuantity from "./pages/CustomerQuantity";
 
 const queryClient = new QueryClient();
 
@@ -30,7 +29,6 @@ function App() {
             <Route path="/payments" element={<Payments />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/customer/:token" element={<CustomerQuantity />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
