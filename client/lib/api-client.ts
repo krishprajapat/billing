@@ -209,19 +209,32 @@ export const paymentApi = {
 
 // Reports API
 export const reportsApi = {
-  getMonthly: (params?: Record<string, string>): Promise<MonthlyReport[]> => {
+  getMonthly: (params?: { period?: string; startDate?: string; endDate?: string }): Promise<MonthlyReport[]> => {
     const searchParams = params ? `?${new URLSearchParams(params).toString()}` : '';
     return apiRequest<MonthlyReport[]>(`/reports/monthly${searchParams}`);
   },
 
-  getWorkerPerformance: (): Promise<WorkerPerformance[]> =>
-    apiRequest<WorkerPerformance[]>('/reports/worker-performance'),
+  getWorkerPerformance: (params?: { period?: string }): Promise<WorkerPerformance[]> => {
+    const searchParams = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return apiRequest<WorkerPerformance[]>(`/reports/worker-performance${searchParams}`);
+  },
 
-  getAreaWise: (): Promise<AreaReport[]> =>
-    apiRequest<AreaReport[]>('/reports/area-wise'),
+  getAreaWise: (params?: { period?: string }): Promise<AreaReport[]> => {
+    const searchParams = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return apiRequest<AreaReport[]>(`/reports/area-wise${searchParams}`);
+  },
 
-  getPaymentMethods: (): Promise<PaymentMethodReport[]> =>
-    apiRequest<PaymentMethodReport[]>('/reports/payment-methods'),
+  getPaymentMethods: (params?: { period?: string }): Promise<PaymentMethodReport[]> => {
+    const searchParams = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return apiRequest<PaymentMethodReport[]>(`/reports/payment-methods${searchParams}`);
+  },
+
+  exportPDF: (params?: { period?: string; reportType?: string }): Promise<Blob> => {
+    const searchParams = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return apiRequest<Blob>(`/reports/export-pdf${searchParams}`, {
+      headers: { 'Accept': 'application/pdf' }
+    });
+  },
 
 };
 

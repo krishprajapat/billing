@@ -253,7 +253,7 @@ export default function Payments() {
         customer: customer.customer,
         dailyDeliveries: billDeliveries,
         currentMonthAmount: customer.currentMonthAmount || 0,
-        pendingDues: customer.pendingDues || 0,
+        pendingDues: ((customer.month1Due || 0) + (customer.month2Due || 0) + (customer.month3Due || 0) + (customer.olderDues || 0)),
         totalAmount,
         billMonth: `${currentMonth}/${currentYear}`,
         billNumber,
@@ -316,7 +316,7 @@ export default function Payments() {
 
       // Generate Razorpay payment link for last month bill
       const billNumber = `BILL-${customer.customer.id}-${lastMonth}${lastMonthYear}`;
-      const lastMonthDue = Math.max(0, customer.lastMonthAmount - customer.lastMonthPaid);
+      const lastMonthDue = Math.max(0, (customer.month1Amount || 0) - (customer.month1Paid || 0));
       const paymentLink = await generateRazorpayPaymentLink(
         lastMonthDue,
         customer.customer.name,
@@ -328,7 +328,7 @@ export default function Payments() {
       const billData: BillData = {
         customer: customer.customer,
         dailyDeliveries: billDeliveries,
-        currentMonthAmount: customer.lastMonthAmount,
+        currentMonthAmount: customer.month1Amount || 0,
         pendingDues: 0, // No previous dues for last month bill
         totalAmount: lastMonthDue,
         billMonth: `${lastMonth}/${lastMonthYear}`,
@@ -389,6 +389,9 @@ export default function Payments() {
     } else if (activeTab === "month-3") {
       // Show customers with 3 months ago data
       baseCustomers = customers.filter(c => c.month3Amount > 0);
+    } else if (activeTab === "payment-history") {
+      // Return empty for payment history as we use filteredPayments instead
+      return [];
     }
 
     // Apply search and status filters
@@ -424,6 +427,7 @@ export default function Payments() {
   const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
   const collectedRevenue = payments.filter(p => p.status === "paid").reduce((sum, p) => sum + p.amount, 0);
   const collectionRate = totalCurrentMonth > 0 ? (collectedRevenue / totalCurrentMonth) * 100 : 0;
+  const totalPendingDues = customers.reduce((sum, c) => sum + (c.totalDue || 0), 0);
 
   if (loading) {
     return (
@@ -568,13 +572,14 @@ export default function Payments() {
                   <TabsTrigger value="month-1">{getMonthName(1)}</TabsTrigger>
                   <TabsTrigger value="month-2">{getMonthName(2)}</TabsTrigger>
                   <TabsTrigger value="month-3">{getMonthName(3)}</TabsTrigger>
+                  <TabsTrigger value="payment-history">Payment History</TabsTrigger>
                 </TabsList>
                 
                 <div className="flex gap-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search customers..."
+                      placeholder={activeTab === "payment-history" ? "Search payments..." : "Search customers..."}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pl-10 w-64"
@@ -1039,6 +1044,105 @@ export default function Payments() {
                     <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-medium">No customers found</h3>
                     <p className="text-muted-foreground">Try adjusting your search or filter criteria.</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Payment History Tab */}
+              <TabsContent value="payment-history" className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-medium">Payment History</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Complete history of all payments (Cash & Online)
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold">₹{totalRevenue.toLocaleString()}</div>
+                    <div className="text-sm text-muted-foreground">{filteredPayments.length} payments</div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Payment Method</TableHead>
+                        <TableHead>Payment Date</TableHead>
+                        <TableHead>Month/Year</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredPayments
+                        .sort((a, b) => new Date(b.paidDate || b.createdAt).getTime() - new Date(a.paidDate || a.createdAt).getTime())
+                        .map((payment) => {
+                          const customer = allCustomers.find(c => c.id === payment.customerId);
+                          return (
+                            <TableRow key={payment.id}>
+                              <TableCell>
+                                <div>
+                                  <div className="font-medium">{customer?.name || 'Unknown Customer'}</div>
+                                  <div className="text-sm text-muted-foreground">{customer?.phone || ''}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium text-green-600">₹{payment.amount.toLocaleString()}</div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {payment.paymentMethod === 'Cash' ? (
+                                    <IndianRupee className="h-4 w-4 text-green-600" />
+                                  ) : (
+                                    <Smartphone className="h-4 w-4 text-blue-600" />
+                                  )}
+                                  <span>{payment.paymentMethod}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {payment.paidDate ? (
+                                  <span className="text-sm">
+                                    {format(new Date(payment.paidDate), "MMM dd, yyyy")}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">Pending</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-sm">{payment.month} {payment.year}</span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={
+                                  payment.status === "paid" ? "default" :
+                                  payment.status === "partial" ? "secondary" :
+                                  payment.status === "overdue" ? "destructive" : "outline"
+                                }>
+                                  {payment.status === "paid" && <CheckCircle className="h-3 w-3 mr-1" />}
+                                  {payment.status === "overdue" && <XCircle className="h-3 w-3 mr-1" />}
+                                  {payment.status === "partial" && <AlertTriangle className="h-3 w-3 mr-1" />}
+                                  {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-sm text-muted-foreground">
+                                  {payment.notes || 'No notes'}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {filteredPayments.length === 0 && (
+                  <div className="text-center py-8">
+                    <Receipt className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium">No payment history found</h3>
+                    <p className="text-muted-foreground">No payments match your current search criteria.</p>
                   </div>
                 )}
               </TabsContent>

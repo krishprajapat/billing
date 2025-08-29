@@ -58,7 +58,8 @@ import {
   getMonthlyReports,
   getWorkerPerformanceReport,
   getAreaWiseReport,
-  getPaymentMethodReport
+  getPaymentMethodReport,
+  exportReportsPDF
 } from "./routes/reports";
 
 // Daily operations routes
@@ -141,6 +142,7 @@ export function createServer() {
   app.get("/api/reports/worker-performance", getWorkerPerformanceReport);
   app.get("/api/reports/area-wise", getAreaWiseReport);
   app.get("/api/reports/payment-methods", getPaymentMethodReport);
+  app.get("/api/reports/export-pdf", exportReportsPDF);
 
   // Daily operations routes
   app.get("/api/daily/deliveries", getDailyDeliveries);

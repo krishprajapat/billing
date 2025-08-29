@@ -84,18 +84,29 @@ export default function Reports() {
 
   useEffect(() => {
     fetchReportsData();
-  }, []);
+  }, [selectedPeriod]); // Refetch when period changes
+
+  // Auto-refresh data every 30 seconds for real-time sync
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchReportsData();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [selectedPeriod]);
 
   const fetchReportsData = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      const periodParams = { period: selectedPeriod };
+
       const [monthly, workers, areas, paymentMethods] = await Promise.all([
-        reportsApi.getMonthly(),
-        reportsApi.getWorkerPerformance(),
-        reportsApi.getAreaWise(),
-        reportsApi.getPaymentMethods(),
+        reportsApi.getMonthly(periodParams),
+        reportsApi.getWorkerPerformance(periodParams),
+        reportsApi.getAreaWise(periodParams),
+        reportsApi.getPaymentMethods(periodParams),
       ]);
 
       setMonthlyReports(monthly);
@@ -125,15 +136,86 @@ export default function Reports() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleExportPDF = (title: string) => {
-    // In a real app, this would generate a PDF report
-    alert(`PDF report "${title}" would be generated and downloaded.`);
+  const handleExportPDF = async (reportType: string = 'complete') => {
+    try {
+      setLoading(true);
+
+      // Generate PDF with current period data
+      const pdfData = {
+        period: selectedPeriod,
+        monthlyReports,
+        workerPerformanceData,
+        areaReports,
+        paymentMethodReports,
+        generatedAt: new Date().toISOString(),
+        reportType
+      };
+
+      // Create text content (since we don't have a PDF library)
+      const textContent = generateReportContent(pdfData);
+
+      // Download as text file for now
+      const blob = new Blob([textContent], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${reportType}-report-${selectedPeriod}-${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error('Failed to export report:', error);
+      setError('Failed to export report');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Calculate statistics from API data
+  const generateReportContent = (data: any): string => {
+    const periodText = {
+      '1month': 'Last Month',
+      '3months': 'Last 3 Months',
+      '6months': 'Last 6 Months',
+      '1year': 'Last Year'
+    }[selectedPeriod] || 'Selected Period';
+
+    return `Business Report - ${periodText}
+Generated: ${new Date().toLocaleDateString()}
+
+=== SUMMARY ===
+Total Revenue: ₹${totalRevenue.toLocaleString()}
+Total Milk Sold: ${totalMilkSold.toLocaleString()}L
+Active Customers: ${currentMonthData?.totalCustomers || 0}
+Pending Dues: ₹${totalPendingDues.toLocaleString()}
+
+=== MONTHLY DATA ===
+${monthlyReports.map(m => `${m.month} ${m.year}: ₹${m.totalRevenue.toLocaleString()}`).join('\n')}
+
+=== WORKER PERFORMANCE ===
+${workerPerformanceData.map(w => `${w.workerName}: ${w.milkDelivered}L milk, ${w.customers} customers`).join('\n')}
+
+=== AREA ANALYSIS ===
+${areaReports.map(a => `${a.area}: ₹${a.revenue.toLocaleString()} revenue, ${a.customers} customers`).join('\n')}
+`;
+  };
+
+  // Calculate statistics from API data for selected period
   const totalRevenue = monthlyReports.reduce((sum, month) => sum + month.totalRevenue, 0);
   const totalMilkSold = monthlyReports.reduce((sum, month) => sum + month.milkSold, 0);
   const totalPendingDues = monthlyReports.reduce((sum, month) => sum + month.pendingRevenue, 0);
+
+  // Get period text for display
+  const getPeriodText = () => {
+    switch (selectedPeriod) {
+      case '1month': return 'Last Month';
+      case '3months': return 'Last 3 Months';
+      case '6months': return 'Last 6 Months';
+      case '1year': return 'Last Year';
+      default: return 'Selected Period';
+    }
+  };
 
   // Calculate growth rates
   const currentMonthData = monthlyReports[monthlyReports.length - 1];
@@ -226,11 +308,34 @@ export default function Reports() {
             <p className="text-muted-foreground">
               Comprehensive analytics and reporting based on daily billing and delivery data
             </p>
+            <div className="flex items-center gap-2 mt-2">
+              <div className={`h-2 w-2 rounded-full ${loading ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`}></div>
+              <span className="text-xs text-muted-foreground">
+                {loading ? 'Updating data...' : `Real-time data • Last updated: ${new Date().toLocaleTimeString()}`}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={fetchReportsData}
+                disabled={loading}
+                className="h-6 px-2 text-xs"
+              >
+                {loading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <>
+                    <BarChart3 className="h-3 w-3 mr-1" />
+                    Refresh
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
           <div className="flex gap-3">
             <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue />
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select period" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="1month">Last Month</SelectItem>
@@ -239,9 +344,17 @@ export default function Reports() {
                 <SelectItem value="1year">Last Year</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => handleExportPDF("Complete Business Report")}>
-              <Download className="h-4 w-4 mr-2" />
-              Export PDF
+            <Button
+              variant="outline"
+              onClick={() => handleExportPDF('complete-report')}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Export Report
             </Button>
           </div>
         </div>
@@ -258,7 +371,7 @@ export default function Reports() {
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-success" />
                 <span className="text-success">+{revenueGrowth.toFixed(1)}%</span>
-                from last month
+                for {getPeriodText().toLowerCase()}
               </p>
             </CardContent>
           </Card>
@@ -273,7 +386,7 @@ export default function Reports() {
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-success" />
                 <span className="text-success">+{milkGrowth.toFixed(1)}%</span>
-                from last month
+                for {getPeriodText().toLowerCase()}
               </p>
             </CardContent>
           </Card>
@@ -288,7 +401,7 @@ export default function Reports() {
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-success" />
                 <span className="text-success">+{customerGrowth.toFixed(1)}%</span>
-                growth this month
+                growth in {getPeriodText().toLowerCase()}
               </p>
             </CardContent>
           </Card>
@@ -301,7 +414,7 @@ export default function Reports() {
             <CardContent>
               <div className="text-2xl font-bold text-warning">₹{totalPendingDues.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">
-                Across {areaReports.filter(a => a.pendingDues > 0).length} areas
+                For {getPeriodText().toLowerCase()} • {areaReports.filter(a => a.pendingDues > 0).length} areas affected
               </p>
             </CardContent>
           </Card>
@@ -325,7 +438,12 @@ export default function Reports() {
                     <CardTitle>Monthly Revenue Trend</CardTitle>
                     <CardDescription>Revenue collection over time</CardDescription>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => handleExportCSV(monthlyReports, "monthly-revenue")}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExportCSV(monthlyReports, `monthly-revenue-${selectedPeriod}`)}
+                    disabled={loading}
+                  >
                     <Download className="h-4 w-4" />
                   </Button>
                 </CardHeader>
@@ -353,7 +471,12 @@ export default function Reports() {
                     <CardTitle>Milk Sales Volume</CardTitle>
                     <CardDescription>Monthly milk delivery in liters</CardDescription>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => handleExportCSV(monthlyReports, "milk-sales")}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExportCSV(monthlyReports, `milk-sales-${selectedPeriod}`)}
+                    disabled={loading}
+                  >
                     <Download className="h-4 w-4" />
                   </Button>
                 </CardHeader>
@@ -423,34 +546,21 @@ export default function Reports() {
                 <h3 className="text-lg font-semibold">Worker Performance</h3>
                 <p className="text-muted-foreground">Analyze individual worker performance and efficiency</p>
               </div>
-              <Button variant="outline" onClick={() => handleExportCSV(workerPerformanceData, "worker-performance")}>
+              <Button
+                variant="outline"
+                onClick={() => handleExportCSV(workerPerformanceData, `worker-performance-${selectedPeriod}`)}
+                disabled={loading}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue by Worker</CardTitle>
-                <CardDescription>Monthly revenue generated by each delivery worker</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer height={300}>
-                  <BarChart data={workerPerformanceData} layout="horizontal">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={100} />
-                    <Tooltip formatter={(value: any) => [`₹${value.toLocaleString()}`, "Revenue"]} />
-                    <Bar dataKey="revenue" fill="#3b82f6" />
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>Worker Performance Details</CardTitle>
-                <CardDescription>Comprehensive performance metrics for all workers</CardDescription>
+                <CardDescription>Milk delivery and customer metrics for all workers</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="rounded-md border">
@@ -460,14 +570,12 @@ export default function Reports() {
                         <TableHead>Worker</TableHead>
                         <TableHead>Area Coverage</TableHead>
                         <TableHead>Customers</TableHead>
-                        <TableHead>Revenue</TableHead>
                         <TableHead>Milk Delivered</TableHead>
-                        <TableHead>Efficiency</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {workerPerformanceData.map((worker) => (
-                        <TableRow key={worker.workerName}>
+                        <TableRow key={`worker-${worker.workerId}-${worker.workerName}`}>
                           <TableCell className="font-medium">{worker.workerName}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
@@ -476,13 +584,7 @@ export default function Reports() {
                             </div>
                           </TableCell>
                           <TableCell>{worker.customers}</TableCell>
-                          <TableCell>₹{worker.revenue.toLocaleString()}</TableCell>
                           <TableCell>{worker.milkDelivered}L</TableCell>
-                          <TableCell>
-                            <Badge variant={worker.efficiency >= 95 ? "default" : worker.efficiency >= 90 ? "secondary" : "outline"}>
-                              {worker.efficiency}%
-                            </Badge>
-                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -498,7 +600,11 @@ export default function Reports() {
                 <h3 className="text-lg font-semibold">Area-wise Analysis</h3>
                 <p className="text-muted-foreground">Performance breakdown by geographical areas</p>
               </div>
-              <Button variant="outline" onClick={() => handleExportCSV(areaReports, "area-wise-report")}>
+              <Button
+                variant="outline"
+                onClick={() => handleExportCSV(areaReports, `area-wise-report-${selectedPeriod}`)}
+                disabled={loading}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
@@ -530,68 +636,18 @@ export default function Reports() {
                 </CardHeader>
                 <CardContent>
                   <ChartContainer height={300}>
-                    <PieChart>
-                      <Pie
-                        data={areaReports}
-                        dataKey="customers"
-                        nameKey="area"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        fill="#3b82f6"
-                        label={({ area, customers }) => `${area}: ${customers}`}
-                      >
-                        {areaReports.map((entry, index) => (
-                          <Cell key={`area-cell-${entry.area}-${index}`} fill={`hsl(${210 + index * 40}, 70%, 50%)`} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <BarChart data={areaReports}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="area" />
+                      <YAxis />
+                      <Tooltip formatter={(value: any) => [`${value} customers`, "Customer Count"]} />
+                      <Bar dataKey="customers" fill="#3b82f6" />
+                    </BarChart>
                   </ChartContainer>
                 </CardContent>
               </Card>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Area Performance Details</CardTitle>
-                <CardDescription>Detailed metrics for each service area</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Area</TableHead>
-                        <TableHead>Customers</TableHead>
-                        <TableHead>Revenue</TableHead>
-                        <TableHead>Milk Sold</TableHead>
-                        <TableHead>Pending Dues</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {areaReports.map((area) => (
-                        <TableRow key={area.area}>
-                          <TableCell className="font-medium">{area.area}</TableCell>
-                          <TableCell>{area.customers}</TableCell>
-                          <TableCell>₹{area.revenue.toLocaleString()}</TableCell>
-                          <TableCell>{area.milkSold}L</TableCell>
-                          <TableCell className={area.pendingDues > 0 ? "text-warning" : "text-success"}>
-                            ₹{area.pendingDues.toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={area.pendingDues === 0 ? "default" : "destructive"}>
-                              {area.pendingDues === 0 ? "All Clear" : "Has Dues"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="payments" className="space-y-6">
@@ -600,58 +656,33 @@ export default function Reports() {
                 <h3 className="text-lg font-semibold">Payment Analytics</h3>
                 <p className="text-muted-foreground">Payment method preferences and collection patterns</p>
               </div>
-              <Button variant="outline" onClick={() => handleExportCSV(paymentMethodReports, "payment-methods")}>
+              <Button
+                variant="outline"
+                onClick={() => handleExportCSV(paymentMethodReports, `payment-methods-${selectedPeriod}`)}
+                disabled={loading}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Payment Method Distribution</CardTitle>
-                  <CardDescription>Customer preference by payment method</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer height={300}>
-                    <PieChart>
-                      <Pie
-                        data={paymentMethodReports.map(pm => ({ name: pm.method, value: pm.percentage }))}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        label={({ name, value }) => `${name}: ${value}%`}
-                      >
-                        {paymentMethodReports.map((entry, index) => (
-                          <Cell key={`payment-cell-${entry.method}-${index}`} fill={`hsl(${210 + index * 60}, 70%, 50%)`} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Revenue by Payment Method</CardTitle>
-                  <CardDescription>Amount collected through each method</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer height={300}>
-                    <BarChart data={paymentMethodReports.map(pm => ({ method: pm.method, amount: pm.amount, transactions: pm.transactions }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(value: any) => [`₹${(value / 1000).toFixed(0)}K`, "Amount"]} />
-                      <Bar dataKey="amount" fill="#f59e0b" />
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue by Payment Method</CardTitle>
+                <CardDescription>Amount collected through each method</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer height={300}>
+                  <BarChart data={paymentMethodReports.map(pm => ({ method: pm.method, amount: pm.amount, transactions: pm.transactions }))}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="method" />
+                    <YAxis />
+                    <Tooltip formatter={(value: any) => [`₹${(value / 1000).toFixed(0)}K`, "Amount"]} />
+                    <Bar dataKey="amount" fill="#f59e0b" />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
@@ -688,7 +719,11 @@ export default function Reports() {
                 <h3 className="text-lg font-semibold">Business Growth</h3>
                 <p className="text-muted-foreground">Customer acquisition and business expansion metrics</p>
               </div>
-              <Button variant="outline" onClick={() => handleExportCSV(monthlyReports, "customer-growth")}>
+              <Button
+                variant="outline"
+                onClick={() => handleExportCSV(monthlyReports, `customer-growth-${selectedPeriod}`)}
+                disabled={loading}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
@@ -705,7 +740,7 @@ export default function Reports() {
                     month: report.month.slice(0, 3),
                     newCustomers: report.newCustomers,
                     totalCustomers: report.totalCustomers
-                  }))}>,
+                  }))}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
@@ -729,7 +764,7 @@ export default function Reports() {
               </CardContent>
             </Card>
 
-            <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2">
               <Card>
                 <CardHeader>
                   <CardTitle>Average Customer Value</CardTitle>
@@ -738,17 +773,6 @@ export default function Reports() {
                 <CardContent>
                   <div className="text-2xl font-bold">₹{currentMonthData ? (currentMonthData.totalRevenue / currentMonthData.totalCustomers).toFixed(0) : '0'}</div>
                   <p className="text-xs text-muted-foreground">Per customer per month</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Customer Retention</CardTitle>
-                  <CardDescription>Monthly retention rate</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-success">96.8%</div>
-                  <p className="text-xs text-muted-foreground">Customers retained monthly</p>
                 </CardContent>
               </Card>
 

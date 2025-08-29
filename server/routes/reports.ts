@@ -4,7 +4,7 @@ import { db } from "../database/models";
 
 export const getMonthlyReports: RequestHandler = (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { period = '6months', startDate, endDate } = req.query;
 
     const customers = db.getCustomers();
     const payments = db.getPayments();
@@ -17,8 +17,25 @@ export const getMonthlyReports: RequestHandler = (req, res) => {
     const currentMonth = currentDate.getMonth();
     const currentYear = currentDate.getFullYear();
 
-    // Generate reports for last 6 months including current month
-    for (let i = 5; i >= 0; i--) {
+    // Determine number of months based on period
+    let monthsToInclude = 6; // Default
+    switch (period) {
+      case '1month':
+        monthsToInclude = 1;
+        break;
+      case '3months':
+        monthsToInclude = 3;
+        break;
+      case '6months':
+        monthsToInclude = 6;
+        break;
+      case '1year':
+        monthsToInclude = 12;
+        break;
+    }
+
+    // Generate reports for specified period
+    for (let i = monthsToInclude - 1; i >= 0; i--) {
       const reportDate = new Date(currentYear, currentMonth - i, 1);
       const monthName = reportDate.toLocaleString('default', { month: 'long' });
       const year = reportDate.getFullYear();
@@ -87,6 +104,7 @@ export const getMonthlyReports: RequestHandler = (req, res) => {
 
 export const getWorkerPerformanceReport: RequestHandler = (req, res) => {
   try {
+    const { period = '6months' } = req.query;
     const workers = db.getWorkers({ status: 'active' });
     const customers = db.getCustomers({ status: 'active' });
 
@@ -109,7 +127,7 @@ export const getWorkerPerformanceReport: RequestHandler = (req, res) => {
       return {
         workerId: worker.id,
         workerName: worker.name,
-        area: worker.area,
+        area: worker.areaName,
         customers: workerCustomers.length,
         revenue: workerCustomers.reduce((sum, c) => sum + (c.monthlyAmount || 0), 0),
         milkDelivered: milkDelivered || (workerCustomers.reduce((sum, c) => sum + c.dailyQuantity, 0) * 15), // Fallback
@@ -136,6 +154,7 @@ export const getWorkerPerformanceReport: RequestHandler = (req, res) => {
 
 export const getAreaWiseReport: RequestHandler = (req, res) => {
   try {
+    const { period = '6months' } = req.query;
     const customers = db.getCustomers({ status: 'active' });
     const workers = db.getWorkers({ status: 'active' });
 
@@ -149,9 +168,10 @@ export const getAreaWiseReport: RequestHandler = (req, res) => {
     });
 
     const areaData = customers.reduce((acc: any, customer) => {
-      if (!acc[customer.area]) {
-        acc[customer.area] = {
-          area: customer.area,
+      const areaName = customer.areaName || customer.area || 'Unknown Area';
+      if (!acc[areaName]) {
+        acc[areaName] = {
+          area: areaName,
           customers: 0,
           revenue: 0,
           milkSold: 0,
@@ -160,19 +180,19 @@ export const getAreaWiseReport: RequestHandler = (req, res) => {
         };
       }
 
-      acc[customer.area].customers++;
-      acc[customer.area].revenue += customer.monthlyAmount || 0;
-      acc[customer.area].pendingDues += customer.pendingDues;
+      acc[areaName].customers++;
+      acc[areaName].revenue += customer.monthlyAmount || 0;
+      acc[areaName].pendingDues += customer.pendingDues;
 
       // Calculate actual milk sold from daily deliveries
       const customerDeliveries = monthlyDeliveries.filter(d => d.customerId === customer.id);
       const actualMilkSold = customerDeliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-      acc[customer.area].milkSold += actualMilkSold || (customer.dailyQuantity * 15); // Fallback
+      acc[areaName].milkSold += actualMilkSold || (customer.dailyQuantity * 15); // Fallback
 
       // Find worker for this customer
       const worker = workers.find(w => w.id === customer.workerId);
       if (worker) {
-        acc[customer.area].workers.add(worker.id);
+        acc[areaName].workers.add(worker.id);
       }
 
       return acc;
@@ -203,7 +223,25 @@ export const getAreaWiseReport: RequestHandler = (req, res) => {
 
 export const getPaymentMethodReport: RequestHandler = (req, res) => {
   try {
+    const { period = '6months' } = req.query;
     const payments = db.getPayments();
+
+    // Filter payments based on period
+    const currentDate = new Date();
+    let monthsToInclude = 6;
+    switch (period) {
+      case '1month': monthsToInclude = 1; break;
+      case '3months': monthsToInclude = 3; break;
+      case '6months': monthsToInclude = 6; break;
+      case '1year': monthsToInclude = 12; break;
+    }
+
+    const filteredPayments = payments.filter(p => {
+      const paymentDate = new Date(p.paidDate || p.createdAt);
+      const cutoffDate = new Date(currentDate);
+      cutoffDate.setMonth(cutoffDate.getMonth() - monthsToInclude);
+      return paymentDate >= cutoffDate;
+    });
     
     // Calculate payment method statistics
     interface PaymentMethodStat {
@@ -212,7 +250,7 @@ export const getPaymentMethodReport: RequestHandler = (req, res) => {
       transactions: number;
     }
 
-    const paymentMethodStats: Record<string, PaymentMethodStat> = payments.reduce((acc: Record<string, PaymentMethodStat>, payment) => {
+    const paymentMethodStats: Record<string, PaymentMethodStat> = filteredPayments.reduce((acc: Record<string, PaymentMethodStat>, payment) => {
       if (!acc[payment.paymentMethod]) {
         acc[payment.paymentMethod] = {
           method: payment.paymentMethod,
@@ -401,3 +439,65 @@ export const getBusinessSummary: RequestHandler = (req, res) => {
     res.status(500).json(response);
   }
 };
+
+export const exportReportsPDF: RequestHandler = (req, res) => {
+  try {
+    const { period = '6months', reportType = 'complete' } = req.query;
+
+    // Get all report data based on period
+    const periodParams = { period: period as string };
+
+    // In a real implementation, you would:
+    // 1. Fetch all the report data using the existing functions
+    // 2. Use a PDF generation library like puppeteer, jsPDF, or PDFKit
+    // 3. Generate a professional PDF report
+
+    // For now, return a simple text response that would be a PDF
+    const pdfContent = generatePDFContent(period as string, reportType as string);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=business-report-${period}-${new Date().toISOString().split('T')[0]}.pdf`);
+    res.send(pdfContent);
+
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: "Failed to export PDF report",
+    };
+    res.status(500).json(response);
+  }
+};
+
+function generatePDFContent(period: string, reportType: string): string {
+  const periodText = {
+    '1month': 'Last Month',
+    '3months': 'Last 3 Months',
+    '6months': 'Last 6 Months',
+    '1year': 'Last Year'
+  }[period] || 'Selected Period';
+
+  // In production, use proper PDF generation libraries
+  return `
+MILKFLOW BUSINESS REPORT
+${periodText}
+Generated: ${new Date().toLocaleDateString()}
+
+This would be a professionally formatted PDF report with:
+- Charts and graphs
+- Detailed tables
+- Financial summaries
+- Performance metrics
+- Area-wise breakdowns
+- Worker performance
+- Payment analytics
+
+Report Type: ${reportType}
+Period: ${periodText}
+
+In production, this would be generated using libraries like:
+- Puppeteer for HTML to PDF conversion
+- jsPDF for client-side PDF generation
+- PDFKit for server-side PDF creation
+- Chart.js or D3.js for embedded charts
+  `;
+}
