@@ -1,10 +1,10 @@
 import { RequestHandler } from "express";
 import { ApiResponse, DashboardStats, RecentActivity } from "@shared/api";
-import { db } from "../database/models";
+import { supabaseService } from "../database/supabase-service";
 
-export const getDashboardStats: RequestHandler = (req, res) => {
+export const getDashboardStats: RequestHandler = async (req, res) => {
   try {
-    const stats = db.getDashboardStats();
+    const stats = await supabaseService.getDashboardStats();
     
     const response: ApiResponse<DashboardStats> = {
       success: true,
@@ -12,9 +12,10 @@ export const getDashboardStats: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch dashboard statistics",
+      error: error instanceof Error ? error.message : "Failed to fetch dashboard statistics",
     };
     res.status(500).json(response);
   }

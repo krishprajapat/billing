@@ -1,92 +1,12 @@
 import { RequestHandler } from "express";
 import { ApiResponse, MonthlyReport, WorkerPerformance, AreaReport, PaymentMethodReport, PaymentMethod } from "@shared/api";
-import { db } from "../database/models";
+import { supabaseService } from "../database/supabase-service";
 
-export const getMonthlyReports: RequestHandler = (req, res) => {
+export const getMonthlyReports: RequestHandler = async (req, res) => {
   try {
     const { period = '6months', startDate, endDate } = req.query;
 
-    const customers = db.getCustomers();
-    const payments = db.getPayments();
-
-    // Generate monthly reports based on actual daily billing data
-    const monthlyReports: MonthlyReport[] = [];
-
-    // Get current month data from daily deliveries
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
-
-    // Determine number of months based on period
-    let monthsToInclude = 6; // Default
-    switch (period) {
-      case '1month':
-        monthsToInclude = 1;
-        break;
-      case '3months':
-        monthsToInclude = 3;
-        break;
-      case '6months':
-        monthsToInclude = 6;
-        break;
-      case '1year':
-        monthsToInclude = 12;
-        break;
-    }
-
-    // Generate reports for specified period
-    for (let i = monthsToInclude - 1; i >= 0; i--) {
-      const reportDate = new Date(currentYear, currentMonth - i, 1);
-      const monthName = reportDate.toLocaleString('default', { month: 'long' });
-      const year = reportDate.getFullYear();
-      const month = reportDate.getMonth();
-
-      // Get customers active during this month
-      const monthCustomers = customers.filter(c => {
-        const joinDate = new Date(c.joinDate);
-        return joinDate <= new Date(year, month + 1, 0); // Before end of month
-      });
-
-      const activeCustomers = monthCustomers.filter(c => c.status === 'active');
-
-      // Calculate revenue from daily deliveries for this month
-      const dailyDeliveries = db.getDailyDeliveries().filter(d => {
-        const deliveryDate = new Date(d.date);
-        return deliveryDate.getMonth() === month && deliveryDate.getFullYear() === year;
-      });
-
-      const totalRevenue = dailyDeliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
-      const milkSold = dailyDeliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-
-      // Calculate payments for this month
-      const monthPayments = payments.filter(p => {
-        return p.month === monthName && p.year === year;
-      });
-
-      const collectedRevenue = monthPayments
-        .filter(p => p.status === 'paid')
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      const pendingRevenue = activeCustomers.reduce((sum, c) => sum + c.pendingDues, 0);
-
-      // Count new customers for this month
-      const newCustomers = monthCustomers.filter(c => {
-        const joinDate = new Date(c.joinDate);
-        return joinDate.getMonth() === month && joinDate.getFullYear() === year;
-      }).length;
-
-      monthlyReports.push({
-        month: monthName,
-        year,
-        totalCustomers: monthCustomers.length,
-        activeCustomers: activeCustomers.length,
-        totalRevenue: totalRevenue || (activeCustomers.length * 1800), // Fallback for mock data
-        collectedRevenue: collectedRevenue || (totalRevenue * 0.9),
-        pendingRevenue,
-        milkSold: milkSold || (activeCustomers.length * 45), // Fallback for mock data
-        newCustomers,
-      });
-    }
+    const monthlyReports = await supabaseService.getMonthlyReports(period as string);
 
     const response: ApiResponse<MonthlyReport[]> = {
       success: true,
@@ -94,49 +14,19 @@ export const getMonthlyReports: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching monthly reports:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch monthly reports",
+      error: error instanceof Error ? error.message : "Failed to fetch monthly reports",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerPerformanceReport: RequestHandler = (req, res) => {
+export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
   try {
     const { period = '6months' } = req.query;
-    const workers = db.getWorkers({ status: 'active' });
-    const customers = db.getCustomers({ status: 'active' });
-
-    const workerPerformance: WorkerPerformance[] = workers.map(worker => {
-      const workerCustomers = customers.filter(c => c.workerId === worker.id);
-
-      // Calculate actual milk delivered from daily deliveries for current month
-      const currentMonth = new Date().getMonth();
-      const currentYear = new Date().getFullYear();
-
-      const workerDeliveries = db.getDailyDeliveries().filter(d => {
-        const deliveryDate = new Date(d.date);
-        return d.workerId === worker.id &&
-               deliveryDate.getMonth() === currentMonth &&
-               deliveryDate.getFullYear() === currentYear;
-      });
-
-      const milkDelivered = workerDeliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-
-      return {
-        workerId: worker.id,
-        workerName: worker.name,
-        area: worker.areaName,
-        customers: workerCustomers.length,
-        revenue: workerCustomers.reduce((sum, c) => sum + (c.monthlyAmount || 0), 0),
-        milkDelivered: milkDelivered || (workerCustomers.reduce((sum, c) => sum + c.dailyQuantity, 0) * 15), // Fallback
-        efficiency: worker.efficiency,
-        onTimeDeliveries: worker.onTimeDeliveries,
-        totalDeliveries: worker.totalDeliveries,
-        rating: worker.rating,
-      };
-    });
+    const workerPerformance = await supabaseService.getWorkerPerformanceReport(period as string);
 
     const response: ApiResponse<WorkerPerformance[]> = {
       success: true,
@@ -144,68 +34,19 @@ export const getWorkerPerformanceReport: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker performance report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker performance report",
+      error: error instanceof Error ? error.message : "Failed to fetch worker performance report",
     };
     res.status(500).json(response);
   }
 };
 
-export const getAreaWiseReport: RequestHandler = (req, res) => {
+export const getAreaWiseReport: RequestHandler = async (req, res) => {
   try {
     const { period = '6months' } = req.query;
-    const customers = db.getCustomers({ status: 'active' });
-    const workers = db.getWorkers({ status: 'active' });
-
-    // Get current month daily deliveries
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-
-    const monthlyDeliveries = db.getDailyDeliveries().filter(d => {
-      const deliveryDate = new Date(d.date);
-      return deliveryDate.getMonth() === currentMonth && deliveryDate.getFullYear() === currentYear;
-    });
-
-    const areaData = customers.reduce((acc: any, customer) => {
-      const areaName = customer.areaName || customer.area || 'Unknown Area';
-      if (!acc[areaName]) {
-        acc[areaName] = {
-          area: areaName,
-          customers: 0,
-          revenue: 0,
-          milkSold: 0,
-          pendingDues: 0,
-          workers: new Set(),
-        };
-      }
-
-      acc[areaName].customers++;
-      acc[areaName].revenue += customer.monthlyAmount || 0;
-      acc[areaName].pendingDues += customer.pendingDues;
-
-      // Calculate actual milk sold from daily deliveries
-      const customerDeliveries = monthlyDeliveries.filter(d => d.customerId === customer.id);
-      const actualMilkSold = customerDeliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-      acc[areaName].milkSold += actualMilkSold || (customer.dailyQuantity * 15); // Fallback
-
-      // Find worker for this customer
-      const worker = workers.find(w => w.id === customer.workerId);
-      if (worker) {
-        acc[areaName].workers.add(worker.id);
-      }
-
-      return acc;
-    }, {});
-
-    const areaReports: AreaReport[] = Object.values(areaData).map((area: any) => ({
-      area: area.area,
-      customers: area.customers,
-      revenue: area.revenue,
-      milkSold: area.milkSold,
-      pendingDues: area.pendingDues,
-      workers: area.workers.size,
-    }));
+    const areaReports = await supabaseService.getAreaWiseReport(period as string);
 
     const response: ApiResponse<AreaReport[]> = {
       success: true,
@@ -213,66 +54,19 @@ export const getAreaWiseReport: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching area-wise report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch area-wise report",
+      error: error instanceof Error ? error.message : "Failed to fetch area-wise report",
     };
     res.status(500).json(response);
   }
 };
 
-export const getPaymentMethodReport: RequestHandler = (req, res) => {
+export const getPaymentMethodReport: RequestHandler = async (req, res) => {
   try {
     const { period = '6months' } = req.query;
-    const payments = db.getPayments();
-
-    // Filter payments based on period
-    const currentDate = new Date();
-    let monthsToInclude = 6;
-    switch (period) {
-      case '1month': monthsToInclude = 1; break;
-      case '3months': monthsToInclude = 3; break;
-      case '6months': monthsToInclude = 6; break;
-      case '1year': monthsToInclude = 12; break;
-    }
-
-    const filteredPayments = payments.filter(p => {
-      const paymentDate = new Date(p.paidDate || p.createdAt);
-      const cutoffDate = new Date(currentDate);
-      cutoffDate.setMonth(cutoffDate.getMonth() - monthsToInclude);
-      return paymentDate >= cutoffDate;
-    });
-    
-    // Calculate payment method statistics
-    interface PaymentMethodStat {
-      method: PaymentMethod;
-      amount: number;
-      transactions: number;
-    }
-
-    const paymentMethodStats: Record<string, PaymentMethodStat> = filteredPayments.reduce((acc: Record<string, PaymentMethodStat>, payment) => {
-      if (!acc[payment.paymentMethod]) {
-        acc[payment.paymentMethod] = {
-          method: payment.paymentMethod,
-          amount: 0,
-          transactions: 0,
-        };
-      }
-
-      acc[payment.paymentMethod].amount += payment.amount;
-      acc[payment.paymentMethod].transactions++;
-
-      return acc;
-    }, {});
-
-    const totalAmount = Object.values(paymentMethodStats).reduce((sum: number, stat: PaymentMethodStat) => sum + stat.amount, 0);
-
-    const paymentMethodReports: PaymentMethodReport[] = Object.values(paymentMethodStats).map((stat: PaymentMethodStat) => ({
-      method: stat.method,
-      percentage: totalAmount > 0 ? (stat.amount / totalAmount) * 100 : 0,
-      amount: stat.amount,
-      transactions: stat.transactions,
-    }));
+    const paymentMethodReports = await supabaseService.getPaymentMethodReport(period as string);
 
     const response: ApiResponse<PaymentMethodReport[]> = {
       success: true,
@@ -280,9 +74,10 @@ export const getPaymentMethodReport: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching payment method report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch payment method report",
+      error: error instanceof Error ? error.message : "Failed to fetch payment method report",
     };
     res.status(500).json(response);
   }

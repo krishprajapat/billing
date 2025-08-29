@@ -1,13 +1,13 @@
 import { RequestHandler } from "express";
-import { db } from "../database/models";
+import { supabaseService } from "../database/supabase-service";
 import { DailyDelivery, DailyQuantity, CustomerQuantityLink, ApiResponse } from "@shared/api";
 
 // Get daily deliveries
-export const getDailyDeliveries: RequestHandler = (req, res) => {
+export const getDailyDeliveries: RequestHandler = async (req, res) => {
   try {
     const { date, customerId, workerId } = req.query;
     
-    const deliveries = db.getDailyDeliveries(
+    const deliveries = await supabaseService.getDailyDeliveries(
       date as string,
       customerId ? parseInt(customerId as string) : undefined,
       workerId ? parseInt(workerId as string) : undefined
@@ -23,13 +23,13 @@ export const getDailyDeliveries: RequestHandler = (req, res) => {
     console.error('Error fetching daily deliveries:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch daily deliveries',
+      error: error instanceof Error ? error.message : 'Failed to fetch daily deliveries',
     });
   }
 };
 
 // Create daily delivery record
-export const createDailyDelivery: RequestHandler = (req, res) => {
+export const createDailyDelivery: RequestHandler = async (req, res) => {
   try {
     const deliveryData = req.body;
     
@@ -42,7 +42,7 @@ export const createDailyDelivery: RequestHandler = (req, res) => {
       });
     }
 
-    const delivery = db.createDailyDelivery(deliveryData);
+    const delivery = await supabaseService.createDailyDelivery(deliveryData);
 
     const response: ApiResponse<DailyDelivery> = {
       success: true,
@@ -55,17 +55,17 @@ export const createDailyDelivery: RequestHandler = (req, res) => {
     console.error('Error creating daily delivery:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to create daily delivery',
+      error: error instanceof Error ? error.message : 'Failed to create daily delivery',
     });
   }
 };
 
 // Get daily quantities
-export const getDailyQuantities: RequestHandler = (req, res) => {
+export const getDailyQuantities: RequestHandler = async (req, res) => {
   try {
     const { customerId, date } = req.query;
     
-    const quantities = db.getDailyQuantities(
+    const quantities = await supabaseService.getDailyQuantities(
       customerId ? parseInt(customerId as string) : undefined,
       date as string
     );
@@ -80,13 +80,13 @@ export const getDailyQuantities: RequestHandler = (req, res) => {
     console.error('Error fetching daily quantities:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch daily quantities',
+      error: error instanceof Error ? error.message : 'Failed to fetch daily quantities',
     });
   }
 };
 
 // Update customer quantity for next day
-export const updateCustomerQuantity: RequestHandler = (req, res) => {
+export const updateCustomerQuantity: RequestHandler = async (req, res) => {
   try {
     const { customerId, date, quantity } = req.body;
     
@@ -97,7 +97,7 @@ export const updateCustomerQuantity: RequestHandler = (req, res) => {
       });
     }
 
-    const success = db.updateCustomerQuantity(customerId, date, quantity);
+    const success = await supabaseService.updateCustomerQuantity(customerId, date, quantity);
     
     if (!success) {
       return res.status(400).json({
@@ -117,13 +117,13 @@ export const updateCustomerQuantity: RequestHandler = (req, res) => {
     console.error('Error updating customer quantity:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update customer quantity',
+      error: error instanceof Error ? error.message : 'Failed to update customer quantity',
     });
   }
 };
 
 // Generate customer quantity change link
-export const generateQuantityLink: RequestHandler = (req, res) => {
+export const generateQuantityLink: RequestHandler = async (req, res) => {
   try {
     const { customerId } = req.params;
     
@@ -134,7 +134,7 @@ export const generateQuantityLink: RequestHandler = (req, res) => {
       });
     }
 
-    const link = db.generateCustomerQuantityLink(parseInt(customerId));
+    const link = await supabaseService.generateCustomerQuantityLink(parseInt(customerId));
     
     if (!link) {
       return res.status(404).json({
@@ -154,13 +154,13 @@ export const generateQuantityLink: RequestHandler = (req, res) => {
     console.error('Error generating quantity link:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to generate quantity link',
+      error: error instanceof Error ? error.message : 'Failed to generate quantity link',
     });
   }
 };
 
 // Get customer by token (for quantity change links)
-export const getCustomerByToken: RequestHandler = (req, res) => {
+export const getCustomerByToken: RequestHandler = async (req, res) => {
   try {
     const { token } = req.params;
     
@@ -171,7 +171,7 @@ export const getCustomerByToken: RequestHandler = (req, res) => {
       });
     }
 
-    const customerLink = db.getCustomerByToken(token);
+    const customerLink = await supabaseService.getCustomerByToken(token);
     
     if (!customerLink) {
       return res.status(404).json({
@@ -190,13 +190,13 @@ export const getCustomerByToken: RequestHandler = (req, res) => {
     console.error('Error fetching customer by token:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch customer data',
+      error: error instanceof Error ? error.message : 'Failed to fetch customer data',
     });
   }
 };
 
 // Update quantity via token (for customer links)
-export const updateQuantityByToken: RequestHandler = (req, res) => {
+export const updateQuantityByToken: RequestHandler = async (req, res) => {
   try {
     const { token } = req.params;
     const { quantity, date } = req.body;
@@ -208,7 +208,7 @@ export const updateQuantityByToken: RequestHandler = (req, res) => {
       });
     }
 
-    const customerLink = db.getCustomerByToken(token);
+    const customerLink = await supabaseService.getCustomerByToken(token);
     
     if (!customerLink) {
       return res.status(404).json({
@@ -224,7 +224,7 @@ export const updateQuantityByToken: RequestHandler = (req, res) => {
       });
     }
 
-    const success = db.updateCustomerQuantity(customerLink.customerId, date, quantity);
+    const success = await supabaseService.updateQuantityByToken(token, quantity, date);
     
     if (!success) {
       return res.status(400).json({
@@ -244,14 +244,14 @@ export const updateQuantityByToken: RequestHandler = (req, res) => {
     console.error('Error updating quantity by token:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update quantity',
+      error: error instanceof Error ? error.message : 'Failed to update quantity',
     });
   }
 };
 
 
 // Calculate daily totals
-export const getDailyTotals: RequestHandler = (req, res) => {
+export const getDailyTotals: RequestHandler = async (req, res) => {
   try {
     const { date } = req.query;
     
@@ -262,7 +262,7 @@ export const getDailyTotals: RequestHandler = (req, res) => {
       });
     }
 
-    const totals = db.calculateDailyTotals(date as string);
+    const totals = await supabaseService.calculateDailyTotals(date as string);
 
     const response: ApiResponse<any> = {
       success: true,
@@ -274,7 +274,7 @@ export const getDailyTotals: RequestHandler = (req, res) => {
     console.error('Error calculating daily totals:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to calculate daily totals',
+      error: error instanceof Error ? error.message : 'Failed to calculate daily totals',
     });
   }
 };

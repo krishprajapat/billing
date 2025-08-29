@@ -1,28 +1,29 @@
 import { RequestHandler } from "express";
 import { ApiResponse, Worker, CreateWorkerRequest, UpdateWorkerRequest, WorkerPerformance } from "@shared/api";
-import { db } from "../database/models";
+import { supabaseService } from "../database/supabase-service";
 
-export const getWorkers: RequestHandler = (req, res) => {
+export const getWorkers: RequestHandler = async (req, res) => {
   try {
-    const workers = db.getWorkers(req.query);
+    const workers = await supabaseService.getWorkers(req.query);
     const response: ApiResponse<Worker[]> = {
       success: true,
       data: workers,
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching workers:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch workers",
+      error: error instanceof Error ? error.message : "Failed to fetch workers",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerById: RequestHandler = (req, res) => {
+export const getWorkerById: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const worker = db.getWorkerById(id);
+    const worker = await supabaseService.getWorkerById(id);
     
     if (!worker) {
       const response: ApiResponse = {
@@ -38,15 +39,16 @@ export const getWorkerById: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker",
+      error: error instanceof Error ? error.message : "Failed to fetch worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const createWorker: RequestHandler = (req, res) => {
+export const createWorker: RequestHandler = async (req, res) => {
   try {
     const workerData: CreateWorkerRequest = req.body;
     
@@ -59,7 +61,7 @@ export const createWorker: RequestHandler = (req, res) => {
       return res.status(400).json(response);
     }
 
-    const worker = db.createWorker(workerData);
+    const worker = await supabaseService.createWorker(workerData);
     const response: ApiResponse<Worker> = {
       success: true,
       data: worker,
@@ -67,20 +69,21 @@ export const createWorker: RequestHandler = (req, res) => {
     };
     res.status(201).json(response);
   } catch (error) {
+    console.error('Error creating worker:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to create worker",
+      error: error instanceof Error ? error.message : "Failed to create worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const updateWorker: RequestHandler = (req, res) => {
+export const updateWorker: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const updateData: UpdateWorkerRequest = req.body;
     
-    const worker = db.updateWorker(id, updateData);
+    const worker = await supabaseService.updateWorker(id, updateData);
     
     if (!worker) {
       const response: ApiResponse = {
@@ -97,26 +100,19 @@ export const updateWorker: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error updating worker:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to update worker",
+      error: error instanceof Error ? error.message : "Failed to update worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const deleteWorker: RequestHandler = (req, res) => {
+export const deleteWorker: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const deleted = db.deleteWorker(id);
-    
-    if (!deleted) {
-      const response: ApiResponse = {
-        success: false,
-        error: "Worker not found or has active customers assigned",
-      };
-      return res.status(400).json(response);
-    }
+    await supabaseService.deleteWorker(id);
 
     const response: ApiResponse = {
       success: true,
@@ -124,29 +120,18 @@ export const deleteWorker: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error deleting worker:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to delete worker",
+      error: error instanceof Error ? error.message : "Failed to delete worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerPerformance: RequestHandler = (req, res) => {
+export const getWorkerPerformance: RequestHandler = async (req, res) => {
   try {
-    const workers = db.getWorkers({ status: 'active' });
-    const performance: WorkerPerformance[] = workers.map(worker => ({
-      workerId: worker.id,
-      workerName: worker.name,
-      area: worker.area,
-      customers: worker.customersAssigned,
-      revenue: worker.monthlyRevenue,
-      milkDelivered: worker.customersAssigned * 60, // Mock calculation
-      efficiency: worker.efficiency,
-      onTimeDeliveries: worker.onTimeDeliveries,
-      totalDeliveries: worker.totalDeliveries,
-      rating: worker.rating,
-    }));
+    const performance = await supabaseService.getWorkerPerformanceReport(req.query.period as string);
 
     const response: ApiResponse<WorkerPerformance[]> = {
       success: true,
@@ -154,17 +139,18 @@ export const getWorkerPerformance: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker performance:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker performance",
+      error: error instanceof Error ? error.message : "Failed to fetch worker performance",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerStats: RequestHandler = (req, res) => {
+export const getWorkerStats: RequestHandler = async (req, res) => {
   try {
-    const workers = db.getWorkers();
+    const workers = await supabaseService.getWorkers();
     const activeWorkers = workers.filter(w => w.status === 'active');
     const totalCustomersManaged = activeWorkers.reduce((sum, w) => sum + w.customersAssigned, 0);
     const totalRevenue = activeWorkers.reduce((sum, w) => sum + w.monthlyRevenue, 0);
@@ -186,15 +172,16 @@ export const getWorkerStats: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker stats:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker statistics",
+      error: error instanceof Error ? error.message : "Failed to fetch worker statistics",
     };
     res.status(500).json(response);
   }
 };
 
-export const assignCustomersToWorker: RequestHandler = (req, res) => {
+export const assignCustomersToWorker: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
     const { customerIds } = req.body;
@@ -207,7 +194,7 @@ export const assignCustomersToWorker: RequestHandler = (req, res) => {
       return res.status(400).json(response);
     }
 
-    const worker = db.getWorkerById(workerId);
+    const worker = await supabaseService.getWorkerById(workerId);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -216,32 +203,28 @@ export const assignCustomersToWorker: RequestHandler = (req, res) => {
       return res.status(404).json(response);
     }
 
-    // Update customers with new worker assignment
-    let updatedCount = 0;
-    customerIds.forEach((customerId: number) => {
-      const updated = db.updateCustomer(customerId, { workerId });
-      if (updated) updatedCount++;
-    });
+    await supabaseService.assignCustomersToWorker(workerId, customerIds);
 
     const response: ApiResponse = {
       success: true,
-      message: `Successfully assigned ${updatedCount} customers to ${worker.name}`,
-      data: { assignedCount: updatedCount },
+      message: `Successfully assigned ${customerIds.length} customers to ${worker.name}`,
+      data: { assignedCount: customerIds.length },
     };
     res.json(response);
   } catch (error) {
+    console.error('Error assigning customers:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to assign customers to worker",
+      error: error instanceof Error ? error.message : "Failed to assign customers to worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerCustomers: RequestHandler = (req, res) => {
+export const getWorkerCustomers: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
-    const customers = db.getCustomers({ worker: workerId.toString() });
+    const customers = await supabaseService.getWorkerCustomers(workerId);
 
     const response: ApiResponse = {
       success: true,
@@ -249,20 +232,21 @@ export const getWorkerCustomers: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker customers:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker's customers",
+      error: error instanceof Error ? error.message : "Failed to fetch worker's customers",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
+export const getWorkerDeliveryReport: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
     const reportDate = req.query.date?.toString() || new Date().toISOString().split('T')[0];
 
-    const worker = db.getWorkerById(workerId);
+    const worker = await supabaseService.getWorkerById(workerId);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -272,11 +256,11 @@ export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
     }
 
     // Get all customers assigned to this worker
-    const customers = db.getCustomers({ worker: workerId.toString(), status: 'active' });
-    const area = db.getAreaById(worker.areaId);
+    const customers = await supabaseService.getWorkerCustomers(workerId);
+    const area = await supabaseService.getAreaById(worker.areaId);
 
     // Get today's delivery data
-    const deliveries = db.getDailyDeliveries({ date: reportDate, workerId });
+    const deliveries = await supabaseService.getDailyDeliveries(reportDate, undefined, workerId);
 
     // Transform customer data for delivery report
     const customerDeliveryData = customers.map(customer => {
@@ -323,7 +307,7 @@ export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
     console.error('Error generating delivery report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to generate delivery report",
+      error: error instanceof Error ? error.message : "Failed to generate delivery report",
     };
     res.status(500).json(response);
   }

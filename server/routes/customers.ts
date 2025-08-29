@@ -1,28 +1,29 @@
 import { RequestHandler } from "express";
 import { ApiResponse, Customer, CreateCustomerRequest, UpdateCustomerRequest } from "@shared/api";
-import { db } from "../database/models";
+import { supabaseService } from "../database/supabase-service";
 
-export const getCustomers: RequestHandler = (req, res) => {
+export const getCustomers: RequestHandler = async (req, res) => {
   try {
-    const customers = db.getCustomers(req.query);
+    const customers = await supabaseService.getCustomers(req.query);
     const response: ApiResponse<Customer[]> = {
       success: true,
       data: customers,
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching customers:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch customers",
+      error: error instanceof Error ? error.message : "Failed to fetch customers",
     };
     res.status(500).json(response);
   }
 };
 
-export const getCustomerById: RequestHandler = (req, res) => {
+export const getCustomerById: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const customer = db.getCustomerById(id);
+    const customer = await supabaseService.getCustomerById(id);
     
     if (!customer) {
       const response: ApiResponse = {
@@ -38,15 +39,16 @@ export const getCustomerById: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching customer:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch customer",
+      error: error instanceof Error ? error.message : "Failed to fetch customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const createCustomer: RequestHandler = (req, res) => {
+export const createCustomer: RequestHandler = async (req, res) => {
   try {
     const customerData: CreateCustomerRequest = req.body;
     
@@ -59,7 +61,7 @@ export const createCustomer: RequestHandler = (req, res) => {
       return res.status(400).json(response);
     }
 
-    const customer = db.createCustomer(customerData);
+    const customer = await supabaseService.createCustomer(customerData);
     const response: ApiResponse<Customer> = {
       success: true,
       data: customer,
@@ -67,20 +69,21 @@ export const createCustomer: RequestHandler = (req, res) => {
     };
     res.status(201).json(response);
   } catch (error) {
+    console.error('Error creating customer:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to create customer",
+      error: error instanceof Error ? error.message : "Failed to create customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const updateCustomer: RequestHandler = (req, res) => {
+export const updateCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const updateData: UpdateCustomerRequest = req.body;
     
-    const customer = db.updateCustomer(id, updateData);
+    const customer = await supabaseService.updateCustomer(id, updateData);
     
     if (!customer) {
       const response: ApiResponse = {
@@ -97,18 +100,19 @@ export const updateCustomer: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error updating customer:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to update customer",
+      error: error instanceof Error ? error.message : "Failed to update customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const deleteCustomer: RequestHandler = (req, res) => {
+export const deleteCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const deleted = db.deleteCustomer(id);
+    const deleted = await supabaseService.deleteCustomer(id);
     
     if (!deleted) {
       const response: ApiResponse = {
@@ -124,17 +128,18 @@ export const deleteCustomer: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error deleting customer:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to delete customer",
+      error: error instanceof Error ? error.message : "Failed to delete customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const getCustomerStats: RequestHandler = (req, res) => {
+export const getCustomerStats: RequestHandler = async (req, res) => {
   try {
-    const customers = db.getCustomers();
+    const customers = await supabaseService.getCustomers();
     const activeCustomers = customers.filter(c => c.status === 'active');
     const totalRevenue = activeCustomers.reduce((sum, c) => sum + c.monthlyAmount, 0);
     const pendingDues = activeCustomers.reduce((sum, c) => sum + c.pendingDues, 0);
@@ -154,9 +159,10 @@ export const getCustomerStats: RequestHandler = (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching customer stats:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch customer statistics",
+      error: error instanceof Error ? error.message : "Failed to fetch customer statistics",
     };
     res.status(500).json(response);
   }

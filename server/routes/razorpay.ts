@@ -1,7 +1,7 @@
 import { RequestHandler } from "express";
 import { ApiResponse } from "@shared/api";
 import Razorpay from 'razorpay';
-import { db } from '../database/models';
+import { supabaseService } from '../database/supabase-service';
 
 interface CreatePaymentLinkRequest {
   amount: number; // Amount in rupees
@@ -211,17 +211,13 @@ export const handlePaymentCallback: RequestHandler = (req, res) => {
             } else {
               // Fallback to current date
               month = paymentDate.toLocaleString('default', { month: 'long' });
-              year = paymentDate.getFullYear();
+              const paymentResult = await supabaseService.createPayment({
             }
 
             const paymentResult = db.createPayment({
-              customerId: customerId,
-              amount: amountInRupees,
-              paymentMethod: payment.method === 'card' ? 'Card' : 'UPI', // Detect actual payment method
-              status: 'paid',
               month: month,
               year: year,
-              dueDate: paymentDate.toISOString().split('T')[0],
+            const customer = await supabaseService.getCustomerById(customerId);
               paidDate: paymentDate.toISOString().split('T')[0],
               notes: `Online payment via Razorpay. Payment ID: ${payment.id}, Link ID: ${paymentLink.id}`,
             });
