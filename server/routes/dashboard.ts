@@ -1,11 +1,75 @@
 import { RequestHandler } from "express";
 import { ApiResponse, DashboardStats, RecentActivity } from "@shared/api";
-import { db } from "../database/models";
+import { supabase } from "../database/supabase";
+import { supabaseDatabase } from "../database/supabase-models";
 
-export const getDashboardStats: RequestHandler = (req, res) => {
+export const getDashboardStats: RequestHandler = async (_req, res) => {
   try {
-    const stats = db.getDashboardStats();
-    
+    const customers = await supabaseDatabase.getCustomers({ status: "active" });
+    const workers = await supabaseDatabase.getWorkers({ status: "active" });
+
+    const today = new Date().toISOString().split("T")[0];
+    const { data: todayDeliveries } = await (supabase as any)
+      .from("daily_deliveries")
+      .select("quantity_delivered,daily_amount")
+      .eq("date", today);
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+    const { data: tomorrowQuantities } = await (supabase as any)
+      .from("daily_quantities")
+      .select("requested_quantity")
+      .eq("date", tomorrowStr);
+
+    const daysInMonth = new Date().getDate();
+    const monthlyRevenue = customers.reduce(
+      (sum, c) => sum + (c.currentMonthAmount || 0),
+      0,
+    );
+    const totalMilkSold = (todayDeliveries || []).reduce(
+      (sum: number, d: any) => sum + (d.quantity_delivered || 0),
+      0,
+    );
+
+    const stats: DashboardStats = {
+      totalCustomers: customers.length,
+      activeWorkers: workers.length,
+      todayRevenue: (todayDeliveries || []).reduce(
+        (sum: number, d: any) => sum + (d.daily_amount || 0),
+        0,
+      ),
+      milkDelivered: (todayDeliveries || []).reduce(
+        (sum: number, d: any) => sum + (d.quantity_delivered || 0),
+        0,
+      ),
+      monthlyRevenue,
+      totalMilkSold,
+      pendingDues: customers.reduce((sum, c) => sum + (c.pendingDues || 0), 0),
+      newCustomers: customers.filter((c) => {
+        const join = new Date(c.joinDate);
+        const now = new Date();
+        return (
+          join.getMonth() === now.getMonth() &&
+          join.getFullYear() === now.getFullYear()
+        );
+      }).length,
+      collectionRate:
+        monthlyRevenue > 0
+          ? ((monthlyRevenue -
+              customers.reduce((sum, c) => sum + (c.pendingDues || 0), 0)) /
+              monthlyRevenue) *
+            100
+          : 0,
+      todayDeliveries: (todayDeliveries || []).length,
+      tomorrowOrders: (tomorrowQuantities || []).reduce(
+        (sum: number, q: any) => sum + (q.requested_quantity || 0),
+        0,
+      ),
+      dailyAverageRevenue: daysInMonth > 0 ? monthlyRevenue / daysInMonth : 0,
+      currentMonthDays: daysInMonth,
+    } as any;
+
     const response: ApiResponse<DashboardStats> = {
       success: true,
       data: stats,
@@ -26,33 +90,33 @@ export const getRecentActivities: RequestHandler = (req, res) => {
     const activities: RecentActivity[] = [
       {
         id: 1,
-        type: 'payment',
-        description: 'Ramesh Kumar paid ₹3,600',
+        type: "payment",
+        description: "Ramesh Kumar paid ₹3,600",
         amount: 3600,
-        customer: 'Ramesh Kumar',
-        time: '2 hours ago',
+        customer: "Ramesh Kumar",
+        time: "2 hours ago",
       },
       {
         id: 2,
-        type: 'delivery',
-        description: 'Suresh completed delivery to 15 customers',
-        worker: 'Suresh Kumar',
-        time: '3 hours ago',
+        type: "delivery",
+        description: "Suresh completed delivery to 15 customers",
+        worker: "Suresh Kumar",
+        time: "3 hours ago",
       },
       {
         id: 3,
-        type: 'new_customer',
-        description: 'New customer Priya Sharma added from Sector 21',
-        customer: 'Priya Sharma',
-        time: '5 hours ago',
+        type: "new_customer",
+        description: "New customer Priya Sharma added from Sector 21",
+        customer: "Priya Sharma",
+        time: "5 hours ago",
       },
       {
         id: 4,
-        type: 'payment_due',
-        description: 'Amit Singh has pending dues of ₹1,200',
+        type: "payment_due",
+        description: "Amit Singh has pending dues of ₹1,200",
         amount: 1200,
-        customer: 'Amit Singh',
-        time: '1 day ago',
+        customer: "Amit Singh",
+        time: "1 day ago",
       },
     ];
 
@@ -70,26 +134,22 @@ export const getRecentActivities: RequestHandler = (req, res) => {
   }
 };
 
-export const getTopPerformers: RequestHandler = (req, res) => {
+export const getTopPerformers: RequestHandler = async (_req, res) => {
   try {
-    const workers = db.getWorkers({ status: 'active' });
+    const workers = await supabaseDatabase.getWorkers({ status: "active" });
     const topPerformers = workers
-      .sort((a, b) => b.efficiency - a.efficiency)
+      .sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0))
       .slice(0, 5)
-      .map(worker => ({
+      .map((worker) => ({
         id: worker.id,
         name: worker.name,
-        customers: worker.customersAssigned,
-        revenue: worker.monthlyRevenue,
-        efficiency: worker.efficiency,
-        rating: worker.rating,
-        area: worker.area,
+        customers: worker.customersAssigned || 0,
+        revenue: worker.monthlyRevenue || 0,
+        efficiency: worker.efficiency || 0,
+        rating: worker.rating || 0,
+        area: worker.areaName,
       }));
-
-    const response: ApiResponse = {
-      success: true,
-      data: topPerformers,
-    };
+    const response: ApiResponse = { success: true, data: topPerformers };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -100,47 +160,52 @@ export const getTopPerformers: RequestHandler = (req, res) => {
   }
 };
 
-export const getQuickStats: RequestHandler = (req, res) => {
+export const getQuickStats: RequestHandler = async (_req, res) => {
   try {
-    const customers = db.getCustomers();
-    const workers = db.getWorkers();
-    const payments = db.getPayments();
+    const customers = await supabaseDatabase.getCustomers();
+    const activeCustomers = customers.filter((c) => c.status === "active");
+    const { data: payments } = await (supabase as any)
+      .from("payments")
+      .select("*");
+    const today = new Date().toISOString().split("T")[0];
+    const { data: deliveries } = await (supabase as any)
+      .from("daily_deliveries")
+      .select("daily_amount,quantity_delivered")
+      .eq("date", today);
 
-    const activeCustomers = customers.filter(c => c.status === 'active');
-    const activeWorkers = workers.filter(w => w.status === 'active');
-    
-    const currentDate = new Date();
-    const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
-    const currentYear = currentDate.getFullYear();
-    
-    const currentMonthPayments = payments.filter(p => 
-      p.month === currentMonth && p.year === currentYear && p.status === 'paid'
+    const todayRevenue = (deliveries || []).reduce(
+      (sum: number, d: any) => sum + (d.daily_amount || 0),
+      0,
     );
-
-    const todayRevenue = currentMonthPayments.reduce((sum, p) => sum + p.amount, 0);
-    const pendingDues = activeCustomers.reduce((sum, c) => sum + c.pendingDues, 0);
-    const totalMilkToday = activeCustomers.reduce((sum, c) => sum + c.dailyQuantity, 0);
+    const pendingDues = activeCustomers.reduce(
+      (sum, c) => sum + (c.pendingDues || 0),
+      0,
+    );
+    const totalMilkToday = (deliveries || []).reduce(
+      (sum: number, d: any) => sum + (d.quantity_delivered || 0),
+      0,
+    );
+    const currentDate = new Date();
+    const newCustomersThisMonth = customers.filter((c) => {
+      const joinDate = new Date(c.joinDate);
+      return (
+        joinDate.getMonth() === currentDate.getMonth() &&
+        joinDate.getFullYear() === currentDate.getFullYear()
+      );
+    }).length;
 
     const quickStats = {
       activeCustomers: activeCustomers.length,
-      activeWorkers: activeWorkers.length,
+      activeWorkers: (await supabaseDatabase.getWorkers({ status: "active" }))
+        .length,
       todayRevenue,
       milkDeliveredToday: totalMilkToday,
       pendingDues,
-      overdueCustomers: activeCustomers.filter(c => c.pendingDues > c.monthlyAmount).length,
-      newCustomersThisMonth: customers.filter(c => {
-        const joinDate = new Date(c.joinDate);
-        return joinDate.getMonth() === currentDate.getMonth() && 
-               joinDate.getFullYear() === currentDate.getFullYear();
-      }).length,
-      collectionRate: activeCustomers.length > 0 ? 
-        ((activeCustomers.length - activeCustomers.filter(c => c.pendingDues > 0).length) / activeCustomers.length) * 100 : 0,
+      overdueCustomers: 0,
+      newCustomersThisMonth,
+      collectionRate: 0,
     };
-
-    const response: ApiResponse = {
-      success: true,
-      data: quickStats,
-    };
+    const response: ApiResponse = { success: true, data: quickStats };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -155,12 +220,12 @@ export const getMonthlyTrend: RequestHandler = (req, res) => {
   try {
     // Mock monthly trend data - in a real app, this would come from historical data
     const monthlyTrend = [
-      { month: 'Jul 2024', customers: 180, revenue: 925000, milkSold: 18500 },
-      { month: 'Aug 2024', customers: 195, revenue: 1010000, milkSold: 20200 },
-      { month: 'Sep 2024', customers: 210, revenue: 1105000, milkSold: 22100 },
-      { month: 'Oct 2024', customers: 225, revenue: 1215000, milkSold: 24300 },
-      { month: 'Nov 2024', customers: 240, revenue: 1284000, milkSold: 25680 },
-      { month: 'Dec 2024', customers: 247, revenue: 1360000, milkSold: 27200 },
+      { month: "Jul 2024", customers: 180, revenue: 925000, milkSold: 18500 },
+      { month: "Aug 2024", customers: 195, revenue: 1010000, milkSold: 20200 },
+      { month: "Sep 2024", customers: 210, revenue: 1105000, milkSold: 22100 },
+      { month: "Oct 2024", customers: 225, revenue: 1215000, milkSold: 24300 },
+      { month: "Nov 2024", customers: 240, revenue: 1284000, milkSold: 25680 },
+      { month: "Dec 2024", customers: 247, revenue: 1360000, milkSold: 27200 },
     ];
 
     const response: ApiResponse = {
@@ -177,28 +242,38 @@ export const getMonthlyTrend: RequestHandler = (req, res) => {
   }
 };
 
-export const getAreaWiseStats: RequestHandler = (req, res) => {
+export const getAreaWiseStats: RequestHandler = async (_req, res) => {
   try {
-    const customers = db.getCustomers({ status: 'active' });
-    const areaStats = customers.reduce((acc: any, customer) => {
-      if (!acc[customer.area]) {
-        acc[customer.area] = {
-          area: customer.area,
-          customers: 0,
-          revenue: 0,
-          milkSold: 0,
-          pendingDues: 0,
-        };
-      }
-      
-      acc[customer.area].customers++;
-      acc[customer.area].revenue += customer.monthlyAmount;
-      acc[customer.area].milkSold += customer.dailyQuantity * 30;
-      acc[customer.area].pendingDues += customer.pendingDues;
-      
-      return acc;
-    }, {});
-
+    const customers = await supabaseDatabase.getCustomers({ status: "active" });
+    const areaStats = customers.reduce(
+      (acc: any, customer) => {
+        const areaName = customer.areaName || "Unknown Area";
+        if (!acc[areaName]) {
+          acc[areaName] = {
+            area: areaName,
+            customers: 0,
+            revenue: 0,
+            milkSold: 0,
+            pendingDues: 0,
+          };
+        }
+        acc[areaName].customers++;
+        acc[areaName].revenue += customer.currentMonthAmount || 0;
+        acc[areaName].milkSold += customer.dailyQuantity * 30;
+        acc[areaName].pendingDues += customer.pendingDues || 0;
+        return acc;
+      },
+      {} as Record<
+        string,
+        {
+          area: string;
+          customers: number;
+          revenue: number;
+          milkSold: number;
+          pendingDues: number;
+        }
+      >,
+    );
     const response: ApiResponse = {
       success: true,
       data: Object.values(areaStats),

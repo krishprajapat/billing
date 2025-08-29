@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { initializeDatabase } from "./database/supabase";
 import { handleDemo } from "./routes/demo";
 
 // Area routes
@@ -96,6 +97,9 @@ export function createServer() {
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Initialize database connection
+  initializeDatabase().catch(console.error);
 
   // Health check
   app.get("/api/ping", (_req, res) => {

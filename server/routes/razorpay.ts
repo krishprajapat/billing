@@ -1,7 +1,7 @@
 import { RequestHandler } from "express";
 import { ApiResponse } from "@shared/api";
-import Razorpay from 'razorpay';
-import { db } from '../database/models';
+import Razorpay from "razorpay";
+import { supabase } from "../database/supabase";
 
 interface CreatePaymentLinkRequest {
   amount: number; // Amount in rupees
@@ -34,8 +34,8 @@ interface PaymentLinkResponse {
 
 // Initialize Razorpay with credentials
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_NIKxmqjvmmqx1B',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'qWVOSshch4uz68VdU2Cwlkn4',
+  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_NIKxmqjvmmqx1B",
+  key_secret: process.env.RAZORPAY_KEY_SECRET || "qWVOSshch4uz68VdU2Cwlkn4",
 });
 
 // Create payment link
@@ -47,41 +47,48 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
       description,
       reference_id,
       expire_by,
-      notes
+      notes,
     }: CreatePaymentLinkRequest = req.body;
 
     // Validate required fields
-    if (!amount || !customer?.name || !customer?.contact || !description || !reference_id) {
+    if (
+      !amount ||
+      !customer?.name ||
+      !customer?.contact ||
+      !description ||
+      !reference_id
+    ) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: amount, customer.name, customer.contact, description, reference_id',
+        error:
+          "Missing required fields: amount, customer.name, customer.contact, description, reference_id",
       });
     }
 
     // Create payment link with actual Razorpay API
     const paymentLink = await razorpay.paymentLink.create({
       amount: amount * 100, // Convert to paise
-      currency: 'INR',
+      currency: "INR",
       accept_partial: false,
       description,
       customer: {
         name: customer.name,
         contact: customer.contact,
-        email: customer.email
+        email: customer.email,
       },
       notify: {
         sms: true,
-        email: customer.email ? true : false
+        email: customer.email ? true : false,
       },
       reminder_enable: true,
       notes: {
         reference_id,
         customer_id: customer.contact, // Store customer info for webhook processing
-        ...notes
+        ...notes,
       },
-      callback_url: `${process.env.BASE_URL || 'http://localhost:8080'}/api/razorpay/callback`,
-      callback_method: 'post',
-      expire_by: expire_by || Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days from now
+      callback_url: `${process.env.BASE_URL || "http://localhost:8080"}/api/razorpay/callback`,
+      callback_method: "post",
+      expire_by: expire_by || Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days from now
     });
 
     // Map response to our interface
@@ -90,29 +97,29 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
       short_url: paymentLink.short_url,
       reference_id,
       status: paymentLink.status,
-      amount: paymentLink.amount,
+      amount: Number(paymentLink.amount),
       customer: {
         name: paymentLink.customer.name,
-        contact: paymentLink.customer.contact,
-        email: paymentLink.customer.email
+        contact: String(paymentLink.customer.contact),
+        email: paymentLink.customer.email,
       },
       description: paymentLink.description,
       expire_by: paymentLink.expire_by,
-      created_at: paymentLink.created_at
+      created_at: Number(paymentLink.created_at),
     };
 
     const response: ApiResponse<PaymentLinkResponse> = {
       success: true,
       data: mappedPaymentLink,
-      message: 'Payment link created successfully',
+      message: "Payment link created successfully",
     };
 
     res.json(response);
   } catch (error) {
-    console.error('Error creating payment link:', error);
+    console.error("Error creating payment link:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to create payment link',
+      error: "Failed to create payment link",
     });
   }
 };
@@ -121,11 +128,11 @@ export const createPaymentLink: RequestHandler = async (req, res) => {
 export const getPaymentLink: RequestHandler = async (req, res) => {
   try {
     const { linkId } = req.params;
-    
+
     if (!linkId) {
       return res.status(400).json({
         success: false,
-        error: 'Payment link ID is required',
+        error: "Payment link ID is required",
       });
     }
 
@@ -138,14 +145,14 @@ export const getPaymentLink: RequestHandler = async (req, res) => {
       short_url: paymentLink.short_url,
       reference_id: paymentLink.reference_id || `BILL-${Date.now()}`,
       status: paymentLink.status,
-      amount: paymentLink.amount,
+      amount: Number(paymentLink.amount),
       customer: {
         name: paymentLink.customer.name,
-        contact: paymentLink.customer.contact,
-        email: paymentLink.customer.email
+        contact: String(paymentLink.customer.contact),
+        email: paymentLink.customer.email,
       },
       description: paymentLink.description,
-      created_at: paymentLink.created_at
+      created_at: Number(paymentLink.created_at),
     };
 
     const response: ApiResponse<PaymentLinkResponse> = {
@@ -155,114 +162,90 @@ export const getPaymentLink: RequestHandler = async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    console.error('Error fetching payment link:', error);
+    console.error("Error fetching payment link:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch payment link',
+      error: "Failed to fetch payment link",
     });
   }
 };
 
 // Handle payment callback (webhook)
-export const handlePaymentCallback: RequestHandler = (req, res) => {
+export const handlePaymentCallback: RequestHandler = async (req, res) => {
   try {
     const { event, payload } = req.body;
 
-    console.log('Payment webhook received:', { event, payload });
+    console.log("Payment webhook received:", { event, payload });
 
     // Handle different Razorpay events
-    if (event === 'payment_link.paid') {
+    if (event === "payment_link.paid") {
       const paymentLink = payload.payment_link.entity;
       const payment = payload.payment.entity;
 
-      console.log('Payment successful:', {
+      console.log("Payment successful:", {
         payment_link_id: paymentLink.id,
         payment_id: payment.id,
         amount: payment.amount,
-        reference_id: paymentLink.reference_id
+        reference_id: paymentLink.reference_id,
       });
 
       // Extract customer information from reference_id
       // Expected format: BILL-{customerId}-{month}{year}
-      const referenceId = paymentLink.reference_id || '';
-      const parts = referenceId.split('-');
+      const referenceId = paymentLink.reference_id || "";
+      const parts = referenceId.split("-");
 
-      if (parts.length >= 3 && parts[0] === 'BILL') {
+      if (parts.length >= 3 && parts[0] === "BILL") {
         const customerId = parseInt(parts[1]);
         const monthYear = parts[2];
 
         if (!isNaN(customerId)) {
-          const customer = db.getCustomerById(customerId);
-
-          if (customer) {
-            // Create payment record
-            const amountInRupees = payment.amount / 100; // Convert from paise to rupees
-            const paymentDate = new Date(payment.created_at * 1000); // Convert from Unix timestamp
-
-            // Determine month and year from reference or use current
-            let month: string;
-            let year: number;
-
-            if (monthYear && monthYear.length >= 6) {
-              // Extract month and year from monthYear string (e.g., "012025" -> January 2025)
-              const monthNum = parseInt(monthYear.substring(0, 2));
-              year = parseInt(monthYear.substring(2));
-              month = new Date(year, monthNum - 1).toLocaleString('default', { month: 'long' });
-            } else {
-              // Fallback to current date
-              month = paymentDate.toLocaleString('default', { month: 'long' });
-              year = paymentDate.getFullYear();
-            }
-
-            const paymentResult = db.createPayment({
-              customerId: customerId,
-              amount: amountInRupees,
-              paymentMethod: payment.method === 'card' ? 'Card' : 'UPI', // Detect actual payment method
-              status: 'paid',
-              month: month,
-              year: year,
-              dueDate: paymentDate.toISOString().split('T')[0],
-              paidDate: paymentDate.toISOString().split('T')[0],
-              notes: `Online payment via Razorpay. Payment ID: ${payment.id}, Link ID: ${paymentLink.id}`,
+          // Create payment record in Supabase
+          const amountInRupees = payment.amount / 100;
+          const paymentDate = new Date(payment.created_at * 1000);
+          let month: string;
+          let year: number;
+          if (monthYear && monthYear.length >= 6) {
+            const monthNum = parseInt(monthYear.substring(0, 2));
+            year = parseInt(monthYear.substring(2));
+            month = new Date(year, monthNum - 1).toLocaleString("default", {
+              month: "long",
             });
-
-            if (paymentResult.errors.length > 0) {
-              console.error('Error creating payment record:', paymentResult.errors);
-            } else {
-              console.log('Payment record created successfully:', {
-                paymentId: paymentResult.payment.id,
-                customerId: customerId,
-                amount: amountInRupees,
-                customer: customer.name,
-                remainingBalance: paymentResult.summary?.totalDue || 0,
-                warnings: paymentResult.warnings
-              });
-
-              // Log payment allocation details
-              if (paymentResult.payment.notes) {
-                console.log('Payment allocation:', paymentResult.payment.notes);
-              }
-            }
           } else {
-            console.error('Customer not found for ID:', customerId);
+            month = paymentDate.toLocaleString("default", { month: "long" });
+            year = paymentDate.getFullYear();
+          }
+          const { error } = await (supabase as any).from("payments").insert({
+            customer_id: customerId,
+            amount: amountInRupees,
+            payment_method: payment.method === "card" ? "Card" : "UPI",
+            status: "paid",
+            month,
+            year,
+            due_date: paymentDate.toISOString().split("T")[0],
+            paid_date: paymentDate.toISOString().split("T")[0],
+            notes: `Online payment via Razorpay. Payment ID: ${payment.id}, Link ID: ${paymentLink.id}`,
+            razorpay_payment_id: payment.id,
+          });
+          if (error) {
+            console.error("Error creating payment record:", error);
           }
         } else {
-          console.error('Invalid customer ID in reference:', referenceId);
+          console.error("Invalid customer ID in reference:", referenceId);
         }
       } else {
-        console.error('Invalid reference_id format:', referenceId);
+        console.error("Invalid reference_id format:", referenceId);
       }
     }
 
     res.json({
       success: true,
-      message: 'Webhook processed successfully'
+      message: "Webhook processed successfully",
     });
   } catch (error) {
-    console.error('Error processing payment webhook:', error);
+    console.error("Error processing payment webhook:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to process payment webhook',
+      error: "Failed to process payment webhook",
     });
   }
 };
@@ -271,11 +254,11 @@ export const handlePaymentCallback: RequestHandler = (req, res) => {
 export const cancelPaymentLink: RequestHandler = async (req, res) => {
   try {
     const { linkId } = req.params;
-    
+
     if (!linkId) {
       return res.status(400).json({
         success: false,
-        error: 'Payment link ID is required',
+        error: "Payment link ID is required",
       });
     }
 
@@ -285,15 +268,15 @@ export const cancelPaymentLink: RequestHandler = async (req, res) => {
     const response: ApiResponse<{ status: string }> = {
       success: true,
       data: { status: cancelledLink.status },
-      message: 'Payment link cancelled successfully',
+      message: "Payment link cancelled successfully",
     };
 
     res.json(response);
   } catch (error) {
-    console.error('Error cancelling payment link:', error);
+    console.error("Error cancelling payment link:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to cancel payment link',
+      error: "Failed to cancel payment link",
     });
   }
 };

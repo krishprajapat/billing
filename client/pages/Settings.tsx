@@ -1,15 +1,34 @@
 import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -26,8 +45,6 @@ import {
   Users,
   Database,
   Save,
-  Eye,
-  EyeOff,
   Plus,
   Edit,
   Trash2,
@@ -42,7 +59,6 @@ import {
 import { settingsApi } from "@/lib/api-client";
 
 export default function Settings() {
-  const [showApiKeys, setShowApiKeys] = useState(false);
   const [loading, setLoading] = useState(true);
   const [businessSettings, setBusinessSettings] = useState({
     businessName: "MilkFlow Dairy Services",
@@ -60,18 +76,33 @@ export default function Settings() {
     currency: "INR",
   });
 
-  const [paymentSettings, setPaymentSettings] = useState({
-    razorpayEnabled: true,
-    razorpayKeyId: "rzp_test_1234567890",
-    razorpaySecret: "••••••••••••••••••••••••",
-    upiEnabled: true,
-    upiId: "milkflow@paytm",
-  });
+  // Removed payment gateway UI
 
   const [users] = useState([
-    { id: 1, name: "Admin User", email: "admin@milkflow.com", role: "Super Admin", status: "Active", lastLogin: "2024-12-03" },
-    { id: 2, name: "Manager", email: "manager@milkflow.com", role: "Manager", status: "Active", lastLogin: "2024-12-02" },
-    { id: 3, name: "Worker App", email: "worker@milkflow.com", role: "Worker", status: "Active", lastLogin: "2024-12-03" },
+    {
+      id: 1,
+      name: "Admin User",
+      email: "admin@milkflow.com",
+      role: "Super Admin",
+      status: "Active",
+      lastLogin: "2024-12-03",
+    },
+    {
+      id: 2,
+      name: "Manager",
+      email: "manager@milkflow.com",
+      role: "Manager",
+      status: "Active",
+      lastLogin: "2024-12-02",
+    },
+    {
+      id: 3,
+      name: "Worker App",
+      email: "worker@milkflow.com",
+      role: "Worker",
+      status: "Active",
+      lastLogin: "2024-12-03",
+    },
   ]);
 
   // Fetch current settings on component mount
@@ -79,10 +110,9 @@ export default function Settings() {
     const fetchSettings = async () => {
       try {
         setLoading(true);
-        const [pricing, business, payment] = await Promise.all([
+        const [pricing, business] = await Promise.all([
           settingsApi.getPricingSettings(),
           settingsApi.getBusinessSettings(),
-          settingsApi.getPaymentGatewaySettings(),
         ]);
 
         setPricingSettings({
@@ -101,15 +131,9 @@ export default function Settings() {
           website: business.website || "",
         });
 
-        setPaymentSettings({
-          razorpayEnabled: payment.razorpayEnabled,
-          razorpayKeyId: payment.razorpayKeyId || "",
-          razorpaySecret: payment.razorpaySecret || "",
-          upiEnabled: payment.upiEnabled,
-          upiId: payment.upiId || "",
-        });
+        // Payment settings removed
       } catch (error) {
-        console.error('Failed to fetch settings:', error);
+        console.error("Failed to fetch settings:", error);
       } finally {
         setLoading(false);
       }
@@ -118,8 +142,35 @@ export default function Settings() {
     fetchSettings();
   }, []);
 
-  const handleSaveBusinessSettings = () => {
-    alert("Business settings saved successfully!");
+  const handleSaveBusinessSettings = async () => {
+    try {
+      const updated = await settingsApi.updateBusinessSettings({
+        businessName: businessSettings.businessName,
+        ownerName: businessSettings.ownerName,
+        phone: businessSettings.phone,
+        email: businessSettings.email,
+        address: businessSettings.address,
+        gstNumber: businessSettings.gstNumber,
+        registrationNumber: businessSettings.registrationNumber,
+        website: businessSettings.website,
+      });
+
+      setBusinessSettings({
+        businessName: updated.businessName,
+        ownerName: updated.ownerName,
+        phone: updated.phone,
+        email: updated.email,
+        address: updated.address,
+        gstNumber: updated.gstNumber || "",
+        registrationNumber: updated.registrationNumber || "",
+        website: updated.website || "",
+      });
+
+      alert("Business settings saved successfully!");
+    } catch (error) {
+      console.error("Failed to save business settings:", error);
+      alert("Failed to save business settings. Please try again.");
+    }
   };
 
   const handleSavePricingSettings = async () => {
@@ -144,14 +195,12 @@ export default function Settings() {
 
       alert("Universal pricing saved successfully!");
     } catch (error) {
-      console.error('Failed to save pricing settings:', error);
+      console.error("Failed to save pricing settings:", error);
       alert("Failed to save pricing settings. Please try again.");
     }
   };
 
-  const handleSavePaymentSettings = () => {
-    alert("Payment gateway settings saved successfully!");
-  };
+  // Removed payment gateway save handler
 
   const handleBackupData = () => {
     alert("Data backup initiated. You will receive an email when complete.");
@@ -201,10 +250,9 @@ export default function Settings() {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="business" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="business">Business</TabsTrigger>
             <TabsTrigger value="pricing">Pricing</TabsTrigger>
-            <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
           </TabsList>
@@ -228,7 +276,12 @@ export default function Settings() {
                     <Input
                       id="businessName"
                       value={businessSettings.businessName}
-                      onChange={(e) => setBusinessSettings({...businessSettings, businessName: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          businessName: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -236,7 +289,12 @@ export default function Settings() {
                     <Input
                       id="ownerName"
                       value={businessSettings.ownerName}
-                      onChange={(e) => setBusinessSettings({...businessSettings, ownerName: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          ownerName: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -244,7 +302,12 @@ export default function Settings() {
                     <Input
                       id="phone"
                       value={businessSettings.phone}
-                      onChange={(e) => setBusinessSettings({...businessSettings, phone: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          phone: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -253,7 +316,12 @@ export default function Settings() {
                       id="email"
                       type="email"
                       value={businessSettings.email}
-                      onChange={(e) => setBusinessSettings({...businessSettings, email: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          email: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -261,15 +329,27 @@ export default function Settings() {
                     <Input
                       id="gstNumber"
                       value={businessSettings.gstNumber}
-                      onChange={(e) => setBusinessSettings({...businessSettings, gstNumber: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          gstNumber: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="registrationNumber">Registration Number</Label>
+                    <Label htmlFor="registrationNumber">
+                      Registration Number
+                    </Label>
                     <Input
                       id="registrationNumber"
                       value={businessSettings.registrationNumber}
-                      onChange={(e) => setBusinessSettings({...businessSettings, registrationNumber: e.target.value})}
+                      onChange={(e) =>
+                        setBusinessSettings({
+                          ...businessSettings,
+                          registrationNumber: e.target.value,
+                        })
+                      }
                     />
                   </div>
                 </div>
@@ -278,7 +358,12 @@ export default function Settings() {
                   <Textarea
                     id="address"
                     value={businessSettings.address}
-                    onChange={(e) => setBusinessSettings({...businessSettings, address: e.target.value})}
+                    onChange={(e) =>
+                      setBusinessSettings({
+                        ...businessSettings,
+                        address: e.target.value,
+                      })
+                    }
                     rows={3}
                   />
                 </div>
@@ -287,7 +372,12 @@ export default function Settings() {
                   <Input
                     id="website"
                     value={businessSettings.website}
-                    onChange={(e) => setBusinessSettings({...businessSettings, website: e.target.value})}
+                    onChange={(e) =>
+                      setBusinessSettings({
+                        ...businessSettings,
+                        website: e.target.value,
+                      })
+                    }
                     placeholder="www.yourwebsite.com"
                   />
                 </div>
@@ -318,20 +408,32 @@ export default function Settings() {
                     <Input
                       id="pricePerLiter"
                       type="number"
-                      value={pricingSettings.pricePerLiter || ''}
+                      value={pricingSettings.pricePerLiter || ""}
                       onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, pricePerLiter: value});
+                        const value =
+                          e.target.value === ""
+                            ? 0
+                            : parseInt(e.target.value) || 0;
+                        setPricingSettings({
+                          ...pricingSettings,
+                          pricePerLiter: value,
+                        });
                       }}
                     />
-                    <p className="text-xs text-muted-foreground">This price will apply to all customers universally</p>
+                    <p className="text-xs text-muted-foreground">
+                      This price will apply to all customers universally
+                    </p>
                   </div>
                 </div>
 
                 <div className="p-4 border rounded-lg bg-muted/50 max-w-md">
                   <h4 className="font-medium mb-2">Current Price</h4>
-                  <p className="text-3xl font-bold text-primary">₹{pricingSettings.pricePerLiter || 0}</p>
-                  <p className="text-sm text-muted-foreground">Per liter (applies to all customers)</p>
+                  <p className="text-3xl font-bold text-primary">
+                    ₹{pricingSettings.pricePerLiter || 0}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Per liter (applies to all customers)
+                  </p>
                 </div>
 
                 <Button onClick={handleSavePricingSettings}>
@@ -342,86 +444,7 @@ export default function Settings() {
             </Card>
           </TabsContent>
 
-          {/* Payment Gateways */}
-          <TabsContent value="payments" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CreditCard className="h-5 w-5" />
-                  Payment Gateway Configuration
-                </CardTitle>
-                <CardDescription>
-                  Configure payment methods and gateway settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Razorpay Settings */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium">Razorpay Integration</h4>
-                      <p className="text-sm text-muted-foreground">Accept online payments via cards, UPI, wallets</p>
-                    </div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2 ml-6">
-                    <div className="space-y-2">
-                      <Label>Razorpay Key ID</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type={showApiKeys ? "text" : "password"}
-                          value={paymentSettings.razorpayKeyId}
-                          onChange={(e) => setPaymentSettings({...paymentSettings, razorpayKeyId: e.target.value})}
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => setShowApiKeys(!showApiKeys)}
-                        >
-                          {showApiKeys ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Razorpay Secret</Label>
-                      <Input
-                        type="password"
-                        value={paymentSettings.razorpaySecret}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, razorpaySecret: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* UPI Settings */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium">UPI Integration</h4>
-                      <p className="text-sm text-muted-foreground">Direct UPI payments and QR codes</p>
-                    </div>
-                  </div>
-                  <div className="ml-6">
-                    <div className="space-y-2">
-                      <Label>UPI ID</Label>
-                      <Input
-                        value={paymentSettings.upiId}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, upiId: e.target.value})}
-                        placeholder="your-upi-id@paytm"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-
-                <Button onClick={handleSavePaymentSettings}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Payment Settings
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* Payment Gateways removed */}
 
           {/* User Management */}
           <TabsContent value="users" className="space-y-6">
@@ -464,7 +487,10 @@ export default function Settings() {
                           </div>
                           <div className="space-y-2">
                             <Label>Email</Label>
-                            <Input type="email" placeholder="user@example.com" />
+                            <Input
+                              type="email"
+                              placeholder="user@example.com"
+                            />
                           </div>
                         </div>
                         <div className="space-y-2">
@@ -507,19 +533,32 @@ export default function Settings() {
                           <TableCell>
                             <div>
                               <div className="font-medium">{user.name}</div>
-                              <div className="text-sm text-muted-foreground">{user.email}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {user.email}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={
-                              user.role === "Super Admin" ? "default" :
-                              user.role === "Manager" ? "secondary" : "outline"
-                            }>
+                            <Badge
+                              variant={
+                                user.role === "Super Admin"
+                                  ? "default"
+                                  : user.role === "Manager"
+                                    ? "secondary"
+                                    : "outline"
+                              }
+                            >
                               {user.role}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={user.status === "Active" ? "default" : "destructive"}>
+                            <Badge
+                              variant={
+                                user.status === "Active"
+                                  ? "default"
+                                  : "destructive"
+                              }
+                            >
                               {user.status}
                             </Badge>
                           </TableCell>
@@ -532,7 +571,11 @@ export default function Settings() {
                               <Button variant="ghost" size="sm">
                                 <Shield className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" className="text-destructive">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive"
+                              >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
@@ -563,15 +606,26 @@ export default function Settings() {
                   <div className="space-y-4">
                     <h4 className="font-medium">Data Management</h4>
                     <div className="space-y-3">
-                      <Button variant="outline" className="w-full justify-start" onClick={handleBackupData}>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={handleBackupData}
+                      >
                         <Download className="h-4 w-4 mr-2" />
                         Create Data Backup
                       </Button>
-                      <Button variant="outline" className="w-full justify-start" onClick={handleExportData}>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={handleExportData}
+                      >
                         <Upload className="h-4 w-4 mr-2" />
                         Export All Data
                       </Button>
-                      <Button variant="outline" className="w-full justify-start">
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                      >
                         <RefreshCw className="h-4 w-4 mr-2" />
                         Sync Database
                       </Button>
@@ -606,44 +660,7 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <Separator />
-
-                <div className="space-y-4">
-                  <h4 className="font-medium">Backup Schedule</h4>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label>Backup Frequency</Label>
-                      <Select defaultValue="daily">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="daily">Daily</SelectItem>
-                          <SelectItem value="weekly">Weekly</SelectItem>
-                          <SelectItem value="monthly">Monthly</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Backup Time</Label>
-                      <Input type="time" defaultValue="02:00" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Retention Period</Label>
-                      <Select defaultValue="30">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="7">7 days</SelectItem>
-                          <SelectItem value="30">30 days</SelectItem>
-                          <SelectItem value="90">90 days</SelectItem>
-                          <SelectItem value="365">1 year</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
+                {/* Backup Schedule removed */}
               </CardContent>
             </Card>
           </TabsContent>

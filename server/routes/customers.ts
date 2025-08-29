@@ -1,10 +1,15 @@
 import { RequestHandler } from "express";
-import { ApiResponse, Customer, CreateCustomerRequest, UpdateCustomerRequest } from "@shared/api";
-import { db } from "../database/models";
+import {
+  ApiResponse,
+  Customer,
+  CreateCustomerRequest,
+  UpdateCustomerRequest,
+} from "@shared/api";
+import { supabaseDatabase } from "../database/supabase-models";
 
-export const getCustomers: RequestHandler = (req, res) => {
+export const getCustomers: RequestHandler = async (req, res) => {
   try {
-    const customers = db.getCustomers(req.query);
+    const customers = await supabaseDatabase.getCustomers(req.query);
     const response: ApiResponse<Customer[]> = {
       success: true,
       data: customers,
@@ -19,11 +24,10 @@ export const getCustomers: RequestHandler = (req, res) => {
   }
 };
 
-export const getCustomerById: RequestHandler = (req, res) => {
+export const getCustomerById: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const customer = db.getCustomerById(id);
-    
+    const customer = await supabaseDatabase.getCustomerById(id);
     if (!customer) {
       const response: ApiResponse = {
         success: false,
@@ -31,11 +35,7 @@ export const getCustomerById: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
-    const response: ApiResponse<Customer> = {
-      success: true,
-      data: customer,
-    };
+    const response: ApiResponse<Customer> = { success: true, data: customer };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -46,11 +46,9 @@ export const getCustomerById: RequestHandler = (req, res) => {
   }
 };
 
-export const createCustomer: RequestHandler = (req, res) => {
+export const createCustomer: RequestHandler = async (req, res) => {
   try {
     const customerData: CreateCustomerRequest = req.body;
-    
-    // Basic validation
     if (!customerData.name || !customerData.phone || !customerData.address) {
       const response: ApiResponse = {
         success: false,
@@ -58,30 +56,27 @@ export const createCustomer: RequestHandler = (req, res) => {
       };
       return res.status(400).json(response);
     }
-
-    const customer = db.createCustomer(customerData);
+    const customer = await supabaseDatabase.createCustomer(customerData);
     const response: ApiResponse<Customer> = {
       success: true,
       data: customer,
       message: "Customer created successfully",
     };
     res.status(201).json(response);
-  } catch (error) {
+  } catch (error: any) {
     const response: ApiResponse = {
       success: false,
-      error: "Failed to create customer",
+      error: error?.message || "Failed to create customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const updateCustomer: RequestHandler = (req, res) => {
+export const updateCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const updateData: UpdateCustomerRequest = req.body;
-    
-    const customer = db.updateCustomer(id, updateData);
-    
+    const customer = await supabaseDatabase.updateCustomer(id, updateData);
     if (!customer) {
       const response: ApiResponse = {
         success: false,
@@ -89,27 +84,25 @@ export const updateCustomer: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
     const response: ApiResponse<Customer> = {
       success: true,
       data: customer,
       message: "Customer updated successfully",
     };
     res.json(response);
-  } catch (error) {
+  } catch (error: any) {
     const response: ApiResponse = {
       success: false,
-      error: "Failed to update customer",
+      error: error?.message || "Failed to update customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const deleteCustomer: RequestHandler = (req, res) => {
+export const deleteCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const deleted = db.deleteCustomer(id);
-    
+    const deleted = await supabaseDatabase.deleteCustomer(id);
     if (!deleted) {
       const response: ApiResponse = {
         success: false,
@@ -117,7 +110,6 @@ export const deleteCustomer: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
     const response: ApiResponse = {
       success: true,
       message: "Customer deleted successfully",
@@ -132,26 +124,28 @@ export const deleteCustomer: RequestHandler = (req, res) => {
   }
 };
 
-export const getCustomerStats: RequestHandler = (req, res) => {
+export const getCustomerStats: RequestHandler = async (_req, res) => {
   try {
-    const customers = db.getCustomers();
-    const activeCustomers = customers.filter(c => c.status === 'active');
-    const totalRevenue = activeCustomers.reduce((sum, c) => sum + c.monthlyAmount, 0);
-    const pendingDues = activeCustomers.reduce((sum, c) => sum + c.pendingDues, 0);
-
+    const customers = await supabaseDatabase.getCustomers();
+    const activeCustomers = customers.filter((c) => c.status === "active");
+    const totalRevenue = activeCustomers.reduce(
+      (sum, c) => sum + (c.monthlyAmount || 0),
+      0,
+    );
+    const pendingDues = activeCustomers.reduce(
+      (sum, c) => sum + (c.pendingDues || 0),
+      0,
+    );
     const stats = {
       totalCustomers: customers.length,
       activeCustomers: activeCustomers.length,
       inactiveCustomers: customers.length - activeCustomers.length,
       totalMonthlyRevenue: totalRevenue,
       totalPendingDues: pendingDues,
-      averageOrderValue: activeCustomers.length > 0 ? totalRevenue / activeCustomers.length : 0,
+      averageOrderValue:
+        activeCustomers.length > 0 ? totalRevenue / activeCustomers.length : 0,
     };
-
-    const response: ApiResponse = {
-      success: true,
-      data: stats,
-    };
+    const response: ApiResponse = { success: true, data: stats };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {

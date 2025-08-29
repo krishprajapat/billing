@@ -1,14 +1,18 @@
 import { RequestHandler } from "express";
-import { ApiResponse, Worker, CreateWorkerRequest, UpdateWorkerRequest, WorkerPerformance } from "@shared/api";
-import { db } from "../database/models";
+import {
+  ApiResponse,
+  Worker,
+  CreateWorkerRequest,
+  UpdateWorkerRequest,
+  WorkerPerformance,
+} from "@shared/api";
+import { supabaseDatabase } from "../database/supabase-models";
+import { supabase } from "../database/supabase";
 
-export const getWorkers: RequestHandler = (req, res) => {
+export const getWorkers: RequestHandler = async (req, res) => {
   try {
-    const workers = db.getWorkers(req.query);
-    const response: ApiResponse<Worker[]> = {
-      success: true,
-      data: workers,
-    };
+    const workers = await supabaseDatabase.getWorkers(req.query);
+    const response: ApiResponse<Worker[]> = { success: true, data: workers };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -19,11 +23,10 @@ export const getWorkers: RequestHandler = (req, res) => {
   }
 };
 
-export const getWorkerById: RequestHandler = (req, res) => {
+export const getWorkerById: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const worker = db.getWorkerById(id);
-    
+    const worker = await supabaseDatabase.getWorkerById(id);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -31,11 +34,7 @@ export const getWorkerById: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
-    const response: ApiResponse<Worker> = {
-      success: true,
-      data: worker,
-    };
+    const response: ApiResponse<Worker> = { success: true, data: worker };
     res.json(response);
   } catch (error) {
     const response: ApiResponse = {
@@ -46,11 +45,9 @@ export const getWorkerById: RequestHandler = (req, res) => {
   }
 };
 
-export const createWorker: RequestHandler = (req, res) => {
+export const createWorker: RequestHandler = async (req, res) => {
   try {
     const workerData: CreateWorkerRequest = req.body;
-    
-    // Basic validation
     if (!workerData.name || !workerData.phone || !workerData.email) {
       const response: ApiResponse = {
         success: false,
@@ -58,30 +55,27 @@ export const createWorker: RequestHandler = (req, res) => {
       };
       return res.status(400).json(response);
     }
-
-    const worker = db.createWorker(workerData);
+    const worker = await supabaseDatabase.createWorker(workerData);
     const response: ApiResponse<Worker> = {
       success: true,
       data: worker,
       message: "Worker created successfully",
     };
     res.status(201).json(response);
-  } catch (error) {
+  } catch (error: any) {
     const response: ApiResponse = {
       success: false,
-      error: "Failed to create worker",
+      error: error?.message || "Failed to create worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const updateWorker: RequestHandler = (req, res) => {
+export const updateWorker: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const updateData: UpdateWorkerRequest = req.body;
-    
-    const worker = db.updateWorker(id, updateData);
-    
+    const worker = await supabaseDatabase.updateWorker(id, updateData);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -89,27 +83,25 @@ export const updateWorker: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
     const response: ApiResponse<Worker> = {
       success: true,
       data: worker,
       message: "Worker updated successfully",
     };
     res.json(response);
-  } catch (error) {
+  } catch (error: any) {
     const response: ApiResponse = {
       success: false,
-      error: "Failed to update worker",
+      error: error?.message || "Failed to update worker",
     };
     res.status(500).json(response);
   }
 };
 
-export const deleteWorker: RequestHandler = (req, res) => {
+export const deleteWorker: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const deleted = db.deleteWorker(id);
-    
+    const deleted = await supabaseDatabase.deleteWorker(id);
     if (!deleted) {
       const response: ApiResponse = {
         success: false,
@@ -117,7 +109,6 @@ export const deleteWorker: RequestHandler = (req, res) => {
       };
       return res.status(400).json(response);
     }
-
     const response: ApiResponse = {
       success: true,
       message: "Worker deleted successfully",
@@ -132,28 +123,27 @@ export const deleteWorker: RequestHandler = (req, res) => {
   }
 };
 
-export const getWorkerPerformance: RequestHandler = (req, res) => {
+export const getWorkerPerformance: RequestHandler = async (_req, res) => {
   try {
-    const workers = db.getWorkers({ status: 'active' });
-    const performance: WorkerPerformance[] = workers.map(worker => ({
+    const workers = await supabaseDatabase.getWorkers({ status: "active" });
+    const performance: WorkerPerformance[] = workers.map((worker) => ({
       workerId: worker.id,
       workerName: worker.name,
-      area: worker.area,
-      customers: worker.customersAssigned,
-      revenue: worker.monthlyRevenue,
-      milkDelivered: worker.customersAssigned * 60, // Mock calculation
-      efficiency: worker.efficiency,
-      onTimeDeliveries: worker.onTimeDeliveries,
-      totalDeliveries: worker.totalDeliveries,
-      rating: worker.rating,
+      area: worker.areaName,
+      customers: worker.customersAssigned || 0,
+      revenue: worker.monthlyRevenue || 0,
+      milkDelivered: (worker.customersAssigned || 0) * 60,
+      efficiency: worker.efficiency || 0,
+      onTimeDeliveries: worker.onTimeDeliveries || 0,
+      totalDeliveries: worker.totalDeliveries || 0,
+      rating: worker.rating || 0,
     }));
-
     const response: ApiResponse<WorkerPerformance[]> = {
       success: true,
       data: performance,
     };
     res.json(response);
-  } catch (error) {
+  } catch {
     const response: ApiResponse = {
       success: false,
       error: "Failed to fetch worker performance",
@@ -162,30 +152,38 @@ export const getWorkerPerformance: RequestHandler = (req, res) => {
   }
 };
 
-export const getWorkerStats: RequestHandler = (req, res) => {
+export const getWorkerStats: RequestHandler = async (_req, res) => {
   try {
-    const workers = db.getWorkers();
-    const activeWorkers = workers.filter(w => w.status === 'active');
-    const totalCustomersManaged = activeWorkers.reduce((sum, w) => sum + w.customersAssigned, 0);
-    const totalRevenue = activeWorkers.reduce((sum, w) => sum + w.monthlyRevenue, 0);
-    const averageEfficiency = activeWorkers.reduce((sum, w) => sum + w.efficiency, 0) / activeWorkers.length;
-
+    const workers = await supabaseDatabase.getWorkers();
+    const activeWorkers = workers.filter((w) => w.status === "active");
+    const totalCustomersManaged = activeWorkers.reduce(
+      (sum, w) => sum + (w.customersAssigned || 0),
+      0,
+    );
+    const totalRevenue = activeWorkers.reduce(
+      (sum, w) => sum + (w.monthlyRevenue || 0),
+      0,
+    );
+    const averageEfficiency =
+      activeWorkers.length > 0
+        ? activeWorkers.reduce((sum, w) => sum + (w.efficiency || 0), 0) /
+          activeWorkers.length
+        : 0;
     const stats = {
       totalWorkers: workers.length,
       activeWorkers: activeWorkers.length,
       inactiveWorkers: workers.length - activeWorkers.length,
       totalCustomersManaged,
       totalRevenue,
-      averageEfficiency: isNaN(averageEfficiency) ? 0 : averageEfficiency,
-      topPerformer: activeWorkers.sort((a, b) => b.efficiency - a.efficiency)[0] || null,
+      averageEfficiency,
+      topPerformer:
+        activeWorkers.sort(
+          (a, b) => (b.efficiency || 0) - (a.efficiency || 0),
+        )[0] || null,
     };
-
-    const response: ApiResponse = {
-      success: true,
-      data: stats,
-    };
+    const response: ApiResponse = { success: true, data: stats };
     res.json(response);
-  } catch (error) {
+  } catch {
     const response: ApiResponse = {
       success: false,
       error: "Failed to fetch worker statistics",
@@ -194,11 +192,10 @@ export const getWorkerStats: RequestHandler = (req, res) => {
   }
 };
 
-export const assignCustomersToWorker: RequestHandler = (req, res) => {
+export const assignCustomersToWorker: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
-    const { customerIds } = req.body;
-
+    const { customerIds } = req.body as { customerIds: number[] };
     if (!Array.isArray(customerIds)) {
       const response: ApiResponse = {
         success: false,
@@ -206,8 +203,7 @@ export const assignCustomersToWorker: RequestHandler = (req, res) => {
       };
       return res.status(400).json(response);
     }
-
-    const worker = db.getWorkerById(workerId);
+    const worker = await supabaseDatabase.getWorkerById(workerId);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -215,21 +211,18 @@ export const assignCustomersToWorker: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
-    // Update customers with new worker assignment
-    let updatedCount = 0;
-    customerIds.forEach((customerId: number) => {
-      const updated = db.updateCustomer(customerId, { workerId });
-      if (updated) updatedCount++;
-    });
-
+    const { error } = await (supabase as any)
+      .from("customers")
+      .update({ worker_id: workerId })
+      .in("id", customerIds);
+    if (error) throw error;
     const response: ApiResponse = {
       success: true,
-      message: `Successfully assigned ${updatedCount} customers to ${worker.name}`,
-      data: { assignedCount: updatedCount },
+      message: `Successfully assigned ${customerIds.length} customers to ${worker.name}`,
+      data: { assignedCount: customerIds.length },
     };
     res.json(response);
-  } catch (error) {
+  } catch {
     const response: ApiResponse = {
       success: false,
       error: "Failed to assign customers to worker",
@@ -238,17 +231,17 @@ export const assignCustomersToWorker: RequestHandler = (req, res) => {
   }
 };
 
-export const getWorkerCustomers: RequestHandler = (req, res) => {
+export const getWorkerCustomers: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
-    const customers = db.getCustomers({ worker: workerId.toString() });
-
-    const response: ApiResponse = {
-      success: true,
-      data: customers,
-    };
+    const customers = await supabaseDatabase.getCustomers({
+      worker: "assigned",
+      status: "active",
+    });
+    const filtered = customers.filter((c) => c.workerId === workerId);
+    const response: ApiResponse = { success: true, data: filtered };
     res.json(response);
-  } catch (error) {
+  } catch {
     const response: ApiResponse = {
       success: false,
       error: "Failed to fetch worker's customers",
@@ -257,12 +250,12 @@ export const getWorkerCustomers: RequestHandler = (req, res) => {
   }
 };
 
-export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
+export const getWorkerDeliveryReport: RequestHandler = async (req, res) => {
   try {
     const workerId = parseInt(req.params.id);
-    const reportDate = req.query.date?.toString() || new Date().toISOString().split('T')[0];
-
-    const worker = db.getWorkerById(workerId);
+    const reportDate =
+      req.query.date?.toString() || new Date().toISOString().split("T")[0];
+    const worker = await supabaseDatabase.getWorkerById(workerId);
     if (!worker) {
       const response: ApiResponse = {
         success: false,
@@ -270,18 +263,20 @@ export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
       };
       return res.status(404).json(response);
     }
-
-    // Get all customers assigned to this worker
-    const customers = db.getCustomers({ worker: workerId.toString(), status: 'active' });
-    const area = db.getAreaById(worker.areaId);
-
-    // Get today's delivery data
-    const deliveries = db.getDailyDeliveries({ date: reportDate, workerId });
-
-    // Transform customer data for delivery report
-    const customerDeliveryData = customers.map(customer => {
-      const delivery = deliveries.find(d => d.customerId === customer.id);
-
+    const customers = await supabaseDatabase.getCustomers({
+      worker: "assigned",
+      status: "active",
+    });
+    const assigned = customers.filter((c) => c.workerId === workerId);
+    const { data: deliveries } = await (supabase as any)
+      .from("daily_deliveries")
+      .select("*")
+      .eq("worker_id", workerId)
+      .eq("date", reportDate);
+    const customerDeliveryData = assigned.map((customer) => {
+      const delivery = (deliveries || []).find(
+        (d: any) => d.customer_id === customer.id,
+      );
       return {
         id: customer.id,
         name: customer.name,
@@ -289,23 +284,32 @@ export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
         phone: customer.phone,
         dailyQuantity: customer.dailyQuantity,
         ratePerLiter: customer.ratePerLiter,
-        deliveredQuantity: delivery?.quantityDelivered || 0,
-        deliveryStatus: delivery ?
-          (delivery.quantityDelivered > 0 ? 'delivered' : 'not_delivered') :
-          'pending',
-        notes: delivery?.notes || '',
+        deliveredQuantity: delivery?.quantity_delivered || 0,
+        deliveryStatus: delivery
+          ? delivery.quantity_delivered > 0
+            ? "delivered"
+            : "not_delivered"
+          : "pending",
+        notes: delivery?.notes || "",
       };
     });
-
-    // Calculate totals
-    const totalCustomers = customers.length;
-    const totalQuantityScheduled = customers.reduce((sum, c) => sum + c.dailyQuantity, 0);
-    const totalQuantityDelivered = deliveries.reduce((sum, d) => sum + d.quantityDelivered, 0);
-    const totalAmount = deliveries.reduce((sum, d) => sum + d.dailyAmount, 0);
-
+    const totalCustomers = assigned.length;
+    const totalQuantityScheduled = assigned.reduce(
+      (sum, c) => sum + c.dailyQuantity,
+      0,
+    );
+    const totalQuantityDelivered = (deliveries || []).reduce(
+      (sum: number, d: any) => sum + (d.quantity_delivered || 0),
+      0,
+    );
+    const totalAmount = (deliveries || []).reduce(
+      (sum: number, d: any) =>
+        sum + (d.daily_amount ?? d.quantity_delivered * d.rate_per_liter),
+      0,
+    );
     const reportData = {
       worker,
-      areaName: area?.name || worker.areaName || 'Unknown Area',
+      areaName: worker.areaName || "Unknown Area",
       reportDate,
       customers: customerDeliveryData,
       totalCustomers,
@@ -313,14 +317,9 @@ export const getWorkerDeliveryReport: RequestHandler = (req, res) => {
       totalQuantityDelivered,
       totalAmount,
     };
-
-    const response: ApiResponse = {
-      success: true,
-      data: reportData,
-    };
+    const response: ApiResponse = { success: true, data: reportData };
     res.json(response);
-  } catch (error) {
-    console.error('Error generating delivery report:', error);
+  } catch {
     const response: ApiResponse = {
       success: false,
       error: "Failed to generate delivery report",
