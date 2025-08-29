@@ -11,6 +11,7 @@ import { supabase } from "../database/supabase";
 import { supabaseDatabase } from "../database/supabase-models";
 
 export const getMonthlyReports: RequestHandler = async (req, res) => {
+export const getMonthlyReports: RequestHandler = async (req, res) => {
   try {
     const { period = "6months" } = req.query as any;
     const customers = await supabaseDatabase.getCustomers({ status: "active" });
@@ -83,14 +84,16 @@ export const getMonthlyReports: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching monthly reports:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch monthly reports",
+      error: error instanceof Error ? error.message : "Failed to fetch monthly reports",
     };
     res.status(500).json(response);
   }
 };
 
+export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
 export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
   try {
     const workers = await supabaseDatabase.getWorkers({ status: "active" });
@@ -136,9 +139,10 @@ export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching worker performance report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch worker performance report",
+      error: error instanceof Error ? error.message : "Failed to fetch worker performance report",
     };
     res.status(500).json(response);
   }
@@ -201,14 +205,16 @@ export const getAreaWiseReport: RequestHandler = async (_req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching area-wise report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch area-wise report",
+      error: error instanceof Error ? error.message : "Failed to fetch area-wise report",
     };
     res.status(500).json(response);
   }
 };
 
+export const getPaymentMethodReport: RequestHandler = async (req, res) => {
 export const getPaymentMethodReport: RequestHandler = async (req, res) => {
   try {
     const { period = "6months" } = req.query as any;
@@ -258,9 +264,10 @@ export const getPaymentMethodReport: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching payment method report:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch payment method report",
+      error: error instanceof Error ? error.message : "Failed to fetch payment method report",
     };
     res.status(500).json(response);
   }

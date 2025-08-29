@@ -76,9 +76,10 @@ export const getDashboardStats: RequestHandler = async (_req, res) => {
     };
     res.json(response);
   } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
     const response: ApiResponse = {
       success: false,
-      error: "Failed to fetch dashboard statistics",
+      error: error instanceof Error ? error.message : "Failed to fetch dashboard statistics",
     };
     res.status(500).json(response);
   }

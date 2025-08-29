@@ -35,6 +35,7 @@ export const getPricingSettings: RequestHandler = async (_req, res) => {
 
 // Update pricing settings
 export const updatePricingSettings: RequestHandler = async (req, res) => {
+export const updatePricingSettings: RequestHandler = async (req, res) => {
   try {
     const updatedSettings = await supabaseDatabase.updatePricingSettings(
       req.body as PricingSettings,
@@ -81,6 +82,7 @@ export const getBusinessSettings: RequestHandler = async (_req, res) => {
 };
 
 // Update business settings
+export const updateBusinessSettings: RequestHandler = async (req, res) => {
 export const updateBusinessSettings: RequestHandler = async (req, res) => {
   try {
     const updatedSettings = await supabaseDatabase.updateBusinessSettings(

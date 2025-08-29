@@ -10,6 +10,7 @@ import { supabaseDatabase } from "../database/supabase-models";
 
 // Get daily deliveries
 export const getDailyDeliveries: RequestHandler = async (req, res) => {
+export const getDailyDeliveries: RequestHandler = async (req, res) => {
   try {
     const { date, customerId, workerId } = req.query as any;
     let query = (supabase as any).from("daily_deliveries").select("*");
@@ -48,6 +49,7 @@ export const getDailyDeliveries: RequestHandler = async (req, res) => {
 };
 
 // Create daily delivery record
+export const createDailyDelivery: RequestHandler = async (req, res) => {
 export const createDailyDelivery: RequestHandler = async (req, res) => {
   try {
     const deliveryData = req.body as any;
@@ -111,6 +113,7 @@ export const createDailyDelivery: RequestHandler = async (req, res) => {
 
 // Get daily quantities
 export const getDailyQuantities: RequestHandler = async (req, res) => {
+export const getDailyQuantities: RequestHandler = async (req, res) => {
   try {
     const { customerId, date } = req.query as any;
     let query = (supabase as any).from("daily_quantities").select("*");
@@ -144,6 +147,7 @@ export const getDailyQuantities: RequestHandler = async (req, res) => {
 
 // Update customer quantity for next day
 export const updateCustomerQuantity: RequestHandler = async (req, res) => {
+export const updateCustomerQuantity: RequestHandler = async (req, res) => {
   try {
     const { customerId, date, quantity } = req.body as any;
     if (!customerId || !date || quantity == null) {
@@ -176,6 +180,7 @@ export const updateCustomerQuantity: RequestHandler = async (req, res) => {
 };
 
 // Generate customer quantity change link
+export const generateQuantityLink: RequestHandler = async (req, res) => {
 export const generateQuantityLink: RequestHandler = async (req, res) => {
   try {
     const { customerId } = req.params;
@@ -225,6 +230,7 @@ export const generateQuantityLink: RequestHandler = async (req, res) => {
 
 // Get customer by token (for quantity change links)
 export const getCustomerByToken: RequestHandler = async (req, res) => {
+export const getCustomerByToken: RequestHandler = async (req, res) => {
   try {
     const { token } = req.params;
     if (!token) {
@@ -259,6 +265,7 @@ export const getCustomerByToken: RequestHandler = async (req, res) => {
 };
 
 // Update quantity via token (for customer links)
+export const updateQuantityByToken: RequestHandler = async (req, res) => {
 export const updateQuantityByToken: RequestHandler = async (req, res) => {
   try {
     const { token } = req.params;
@@ -302,6 +309,7 @@ export const updateQuantityByToken: RequestHandler = async (req, res) => {
 };
 
 // Calculate daily totals
+export const getDailyTotals: RequestHandler = async (req, res) => {
 export const getDailyTotals: RequestHandler = async (req, res) => {
   try {
     const { date } = req.query as any;
