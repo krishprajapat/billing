@@ -16,6 +16,8 @@ import {
   PaymentMethodReport,
   User,
   BusinessSettings,
+  PricingSettings,
+  PaymentGatewaySettings,
   DailyDelivery,
   DailyQuantity,
   CustomerQuantityLink,
@@ -375,22 +377,40 @@ export const razorpayApi = {
 };
 
 
-// Settings API (placeholder - you might need to create these endpoints)
+// Settings API
 export const settingsApi = {
-  getUser: (): Promise<User> => 
+  getUser: (): Promise<User> =>
     apiRequest<User>('/settings/user'),
-    
+
   updateUser: (user: Partial<User>): Promise<User> =>
     apiRequest<User>('/settings/user', {
       method: 'PUT',
       body: JSON.stringify(user),
     }),
-    
-  getBusinessSettings: (): Promise<BusinessSettings> => 
+
+  getBusinessSettings: (): Promise<BusinessSettings> =>
     apiRequest<BusinessSettings>('/settings/business'),
-    
+
   updateBusinessSettings: (settings: Partial<BusinessSettings>): Promise<BusinessSettings> =>
     apiRequest<BusinessSettings>('/settings/business', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
+  getPricingSettings: (): Promise<PricingSettings> =>
+    apiRequest<PricingSettings>('/settings/pricing'),
+
+  updatePricingSettings: (settings: Partial<PricingSettings>): Promise<PricingSettings> =>
+    apiRequest<PricingSettings>('/settings/pricing', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
+  getPaymentGatewaySettings: (): Promise<PaymentGatewaySettings> =>
+    apiRequest<PaymentGatewaySettings>('/settings/payment-gateway'),
+
+  updatePaymentGatewaySettings: (settings: Partial<PaymentGatewaySettings>): Promise<PaymentGatewaySettings> =>
+    apiRequest<PaymentGatewaySettings>('/settings/payment-gateway', {
       method: 'PUT',
       body: JSON.stringify(settings),
     }),

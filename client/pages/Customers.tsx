@@ -47,7 +47,7 @@ import {
   AlertCircle,
   Clock,
 } from "lucide-react";
-import { customerApi, workerApi, areaApi, dailyApi, ApiError } from "@/lib/api-client";
+import { customerApi, workerApi, areaApi, dailyApi, settingsApi, ApiError } from "@/lib/api-client";
 import { PDFBillGenerator, shareViaWhatsApp, generateRazorpayPaymentLink, BillData, BusinessInfo } from "@/lib/pdf-generator";
 import { useNavigate } from "react-router-dom";
 import { Customer, CreateCustomerRequest, UpdateCustomerRequest, Worker, Area } from "../../shared/api";
@@ -74,7 +74,7 @@ export default function Customers() {
     address: "",
     areaId: 0,
     dailyQuantity: 1,
-    ratePerLiter: 60,
+    ratePerLiter: 60, // Will be set from universal pricing
     workerId: 0,
     status: "active",
   });
@@ -82,6 +82,7 @@ export default function Customers() {
   const [submitting, setSubmitting] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [generatingBill, setGeneratingBill] = useState<number | null>(null);
+  const [universalPricePerLiter, setUniversalPricePerLiter] = useState(60);
 
   useEffect(() => {
     fetchData();
@@ -168,15 +169,20 @@ export default function Customers() {
       setLoading(true);
       setError(null);
 
-      const [customersData, workersData, areasData] = await Promise.all([
+      const [customersData, workersData, areasData, pricingSettings] = await Promise.all([
         customerApi.getAll(),
         workerApi.getAll(),
         areaApi.getAll(),
+        settingsApi.getPricingSettings(),
       ]);
 
       setCustomers(customersData);
       setWorkers(workersData);
       setAreas(areasData);
+      setUniversalPricePerLiter(pricingSettings.defaultRate);
+
+      // Update new customer form with universal price
+      setNewCustomer(prev => ({ ...prev, ratePerLiter: pricingSettings.defaultRate }));
     } catch (err) {
       console.error('Failed to fetch data:', err);
       setError(err instanceof ApiError ? err.message : 'Failed to load data');
@@ -213,7 +219,7 @@ export default function Customers() {
         address: "",
         areaId: 0,
         dailyQuantity: 1,
-        ratePerLiter: 60,
+        ratePerLiter: universalPricePerLiter,
         workerId: 0,
         status: "active",
       });
@@ -234,7 +240,7 @@ export default function Customers() {
       address: customer.address,
       areaId: customer.areaId,
       dailyQuantity: customer.dailyQuantity,
-      ratePerLiter: customer.ratePerLiter,
+      ratePerLiter: universalPricePerLiter, // Use universal price
       workerId: customer.workerId,
       status: customer.status,
     });
@@ -569,21 +575,22 @@ export default function Customers() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="rate">Rate per Liter (₹)</Label>
-                    <Input
-                      id="rate"
-                      type="number"
-                      value={newCustomer.ratePerLiter}
-                      onChange={(e) => setNewCustomer({...newCustomer, ratePerLiter: parseInt(e.target.value)})}
-                    />
+                    <Label>Universal Rate per Liter</Label>
+                    <div className="p-2 bg-muted rounded border">
+                      <span className="font-medium">₹{universalPricePerLiter}</span>
+                      <p className="text-xs text-muted-foreground">Set in Settings → Pricing</p>
+                    </div>
                   </div>
                 </div>
-                <div className="pt-4">
+                <div className="pt-4 space-y-1">
                   <p className="text-sm text-muted-foreground">
-                    Estimated Monthly Amount: ₹{(newCustomer.dailyQuantity * newCustomer.ratePerLiter * 30).toLocaleString()}
+                    Initial Monthly Amount: <strong>₹0</strong>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Actual amount will be calculated from daily deliveries and customer quantity changes
+                    New customers start with ₹0. Milk delivery begins tomorrow and amounts will be calculated from daily deliveries.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Estimated monthly: ₹{(newCustomer.dailyQuantity * universalPricePerLiter * 30).toLocaleString()} (at {newCustomer.dailyQuantity}L/day)
                   </p>
                 </div>
               </div>
@@ -698,13 +705,11 @@ export default function Customers() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="editRate">Rate per Liter (₹)</Label>
-                    <Input
-                      id="editRate"
-                      type="number"
-                      value={editCustomer.ratePerLiter || ""}
-                      onChange={(e) => setEditCustomer({...editCustomer, ratePerLiter: parseInt(e.target.value)})}
-                    />
+                    <Label>Universal Rate per Liter</Label>
+                    <div className="p-2 bg-muted rounded border">
+                      <span className="font-medium">₹{universalPricePerLiter}</span>
+                      <p className="text-xs text-muted-foreground">Set in Settings → Pricing</p>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editStatus">Status</Label>
@@ -724,20 +729,20 @@ export default function Customers() {
                     Current Monthly Amount: ₹{(editingCustomer?.monthlyAmount || 0).toLocaleString()}
                     <span className="text-xs ml-2">({editingCustomer?.currentMonthDeliveries || 0} days delivered)</span>
                   </p>
-                  {editingCustomer && editCustomer.dailyQuantity && editCustomer.ratePerLiter && (
+                  {editingCustomer && editCustomer.dailyQuantity && (
                     <p className="text-sm text-muted-foreground">
                       New Monthly Amount (with changes): ₹{calculateNewMonthlyAmount(
                         editingCustomer,
                         editCustomer.dailyQuantity,
-                        editCustomer.ratePerLiter
+                        universalPricePerLiter
                       ).toLocaleString()}
                       <span className="text-xs ml-2">
-                        (Current + remaining days at new rate)
+                        (Current + remaining days at new quantity)
                       </span>
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Changes affect only remaining days in this month
+                    Changes affect only remaining days in this month. Rate: ₹{universalPricePerLiter}/L (universal)
                   </p>
                 </div>
               </div>
@@ -883,7 +888,7 @@ export default function Customers() {
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Milk className="h-4 w-4 text-muted-foreground" />
-                          {customer.dailyQuantity}L @ ₹{customer.ratePerLiter}
+                          {customer.dailyQuantity}L @ ₹{universalPricePerLiter}
                         </div>
                       </TableCell>
                       <TableCell>

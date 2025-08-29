@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,9 +39,11 @@ import {
   HardDrive,
   RefreshCw,
 } from "lucide-react";
+import { settingsApi } from "@/lib/api-client";
 
 export default function Settings() {
   const [showApiKeys, setShowApiKeys] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [businessSettings, setBusinessSettings] = useState({
     businessName: "MilkFlow Dairy Services",
     ownerName: "Rajesh Kumar",
@@ -54,12 +56,7 @@ export default function Settings() {
   });
 
   const [pricingSettings, setPricingSettings] = useState({
-    defaultRate: 60,
-    premiumRate: 65,
-    bulkRate: 55,
-    minimumOrder: 0.5,
-    deliveryCharge: 0,
-    lateFee: 50,
+    pricePerLiter: 60,
     currency: "INR",
   });
 
@@ -69,10 +66,6 @@ export default function Settings() {
     razorpaySecret: "••••••••••••••••••••••••",
     upiEnabled: true,
     upiId: "milkflow@paytm",
-    bankAccount: "123456789012",
-    ifscCode: "HDFC0001234",
-    bankName: "HDFC Bank",
-    accountHolder: "MilkFlow Dairy Services",
   });
 
   const [users] = useState([
@@ -81,12 +74,79 @@ export default function Settings() {
     { id: 3, name: "Worker App", email: "worker@milkflow.com", role: "Worker", status: "Active", lastLogin: "2024-12-03" },
   ]);
 
+  // Fetch current settings on component mount
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        setLoading(true);
+        const [pricing, business, payment] = await Promise.all([
+          settingsApi.getPricingSettings(),
+          settingsApi.getBusinessSettings(),
+          settingsApi.getPaymentGatewaySettings(),
+        ]);
+
+        setPricingSettings({
+          pricePerLiter: pricing.defaultRate,
+          currency: pricing.currency,
+        });
+
+        setBusinessSettings({
+          businessName: business.businessName,
+          ownerName: business.ownerName,
+          phone: business.phone,
+          email: business.email,
+          address: business.address,
+          gstNumber: business.gstNumber || "",
+          registrationNumber: business.registrationNumber || "",
+          website: business.website || "",
+        });
+
+        setPaymentSettings({
+          razorpayEnabled: payment.razorpayEnabled,
+          razorpayKeyId: payment.razorpayKeyId || "",
+          razorpaySecret: payment.razorpaySecret || "",
+          upiEnabled: payment.upiEnabled,
+          upiId: payment.upiId || "",
+        });
+      } catch (error) {
+        console.error('Failed to fetch settings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
   const handleSaveBusinessSettings = () => {
     alert("Business settings saved successfully!");
   };
 
-  const handleSavePricingSettings = () => {
-    alert("Pricing settings saved successfully!");
+  const handleSavePricingSettings = async () => {
+    try {
+      // Map pricePerLiter to defaultRate for backend compatibility
+      const updatedSettings = await settingsApi.updatePricingSettings({
+        defaultRate: pricingSettings.pricePerLiter,
+        // Keep other settings unchanged by passing current values
+        premiumRate: pricingSettings.pricePerLiter,
+        bulkRate: pricingSettings.pricePerLiter,
+        minimumOrder: 0.5,
+        deliveryCharge: 0,
+        lateFee: 50,
+        currency: pricingSettings.currency,
+      });
+
+      // Update local state to reflect saved values
+      setPricingSettings({
+        pricePerLiter: updatedSettings.defaultRate,
+        currency: updatedSettings.currency,
+      });
+
+      alert("Universal pricing saved successfully!");
+    } catch (error) {
+      console.error('Failed to save pricing settings:', error);
+      alert("Failed to save pricing settings. Please try again.");
+    }
   };
 
   const handleSavePaymentSettings = () => {
@@ -100,6 +160,21 @@ export default function Settings() {
   const handleExportData = () => {
     alert("Data export started. Download link will be sent via email.");
   };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="p-8 space-y-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading settings...</p>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -230,127 +305,39 @@ export default function Settings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <IndianRupee className="h-5 w-5" />
-                  Pricing Configuration
+                  Universal Pricing
                 </CardTitle>
                 <CardDescription>
-                  Set default milk rates and pricing policies
+                  Set universal milk price per liter for all customers
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-3">
+                <div className="max-w-md">
                   <div className="space-y-2">
-                    <Label htmlFor="defaultRate">Default Rate (₹/Liter)</Label>
+                    <Label htmlFor="pricePerLiter">Price per Liter (₹)</Label>
                     <Input
-                      id="defaultRate"
+                      id="pricePerLiter"
                       type="number"
-                      value={pricingSettings.defaultRate || ''}
+                      value={pricingSettings.pricePerLiter || ''}
                       onChange={(e) => {
                         const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, defaultRate: value});
+                        setPricingSettings({...pricingSettings, pricePerLiter: value});
                       }}
                     />
-                    <p className="text-xs text-muted-foreground">Standard milk rate for regular customers</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="premiumRate">Premium Rate (₹/Liter)</Label>
-                    <Input
-                      id="premiumRate"
-                      type="number"
-                      value={pricingSettings.premiumRate || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, premiumRate: value});
-                      }}
-                    />
-                    <p className="text-xs text-muted-foreground">Rate for premium quality milk</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bulkRate">Bulk Rate (₹/Liter)</Label>
-                    <Input
-                      id="bulkRate"
-                      type="number"
-                      value={pricingSettings.bulkRate || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, bulkRate: value});
-                      }}
-                    />
-                    <p className="text-xs text-muted-foreground">Discounted rate for bulk orders</p>
+                    <p className="text-xs text-muted-foreground">This price will apply to all customers universally</p>
                   </div>
                 </div>
 
-                <Separator />
-
-                <div className="grid gap-6 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="minimumOrder">Minimum Order (Liters)</Label>
-                    <Input
-                      id="minimumOrder"
-                      type="number"
-                      step="0.5"
-                      value={pricingSettings.minimumOrder || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, minimumOrder: value});
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="deliveryCharge">Delivery Charge (₹)</Label>
-                    <Input
-                      id="deliveryCharge"
-                      type="number"
-                      value={pricingSettings.deliveryCharge || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, deliveryCharge: value});
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lateFee">Late Payment Fee (₹)</Label>
-                    <Input
-                      id="lateFee"
-                      type="number"
-                      value={pricingSettings.lateFee || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                        setPricingSettings({...pricingSettings, lateFee: value});
-                      }}
-                    />
-                  </div>
+                <div className="p-4 border rounded-lg bg-muted/50 max-w-md">
+                  <h4 className="font-medium mb-2">Current Price</h4>
+                  <p className="text-3xl font-bold text-primary">₹{pricingSettings.pricePerLiter || 0}</p>
+                  <p className="text-sm text-muted-foreground">Per liter (applies to all customers)</p>
                 </div>
 
                 <Button onClick={handleSavePricingSettings}>
                   <Save className="h-4 w-4 mr-2" />
                   Save Pricing Settings
                 </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Rate Preview</CardTitle>
-                <CardDescription>Preview of current pricing structure</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium">Regular Customer</h4>
-                    <p className="text-2xl font-bold text-primary">₹{pricingSettings.defaultRate || 0}</p>
-                    <p className="text-sm text-muted-foreground">Per liter</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium">Premium Quality</h4>
-                    <p className="text-2xl font-bold text-primary">₹{pricingSettings.premiumRate || 0}</p>
-                    <p className="text-sm text-muted-foreground">Per liter</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium">Bulk Orders</h4>
-                    <p className="text-2xl font-bold text-primary">₹{pricingSettings.bulkRate || 0}</p>
-                    <p className="text-sm text-muted-foreground">Per liter (5L+)</p>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -427,42 +414,6 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <Separator />
-
-                {/* Bank Details */}
-                <div className="space-y-4">
-                  <h4 className="font-medium">Bank Account Details</h4>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Account Number</Label>
-                      <Input
-                        value={paymentSettings.bankAccount}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, bankAccount: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>IFSC Code</Label>
-                      <Input
-                        value={paymentSettings.ifscCode}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, ifscCode: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Bank Name</Label>
-                      <Input
-                        value={paymentSettings.bankName}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, bankName: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Account Holder Name</Label>
-                      <Input
-                        value={paymentSettings.accountHolder}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, accountHolder: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </div>
 
                 <Button onClick={handleSavePaymentSettings}>
                   <Save className="h-4 w-4 mr-2" />

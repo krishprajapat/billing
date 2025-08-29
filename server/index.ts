@@ -79,6 +79,15 @@ import {
   handlePaymentCallback,
   cancelPaymentLink
 } from "./routes/razorpay";
+import {
+  getPricingSettings,
+  updatePricingSettings,
+  getBusinessSettings,
+  updateBusinessSettings,
+  getPaymentGatewaySettings,
+  updatePaymentGatewaySettings
+} from "./routes/settings";
+import { updateAllCustomerRates } from "./routes/update-rates";
 
 export function createServer() {
   const app = express();
@@ -159,6 +168,17 @@ export function createServer() {
   app.get("/api/razorpay/payment-link/:linkId", getPaymentLink);
   app.post("/api/razorpay/callback", handlePaymentCallback);
   app.post("/api/razorpay/payment-link/:linkId/cancel", cancelPaymentLink);
+
+  // Settings routes
+  app.get("/api/settings/pricing", getPricingSettings);
+  app.put("/api/settings/pricing", updatePricingSettings);
+  app.get("/api/settings/business", getBusinessSettings);
+  app.put("/api/settings/business", updateBusinessSettings);
+  app.get("/api/settings/payment-gateway", getPaymentGatewaySettings);
+  app.put("/api/settings/payment-gateway", updatePaymentGatewaySettings);
+
+  // Utility routes
+  app.post("/api/update-customer-rates", updateAllCustomerRates);
 
   return app;
 }

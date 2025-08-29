@@ -440,6 +440,7 @@ class Database {
       throw new Error('Worker does not serve the selected area');
     }
 
+    const appliedRate = this.pricingSettings?.defaultRate ?? data.ratePerLiter;
     const customer: Customer = {
       id: this.nextCustomerId++,
       name: data.name,
@@ -448,8 +449,8 @@ class Database {
       areaId: data.areaId || 0,
       areaName: area?.name,
       dailyQuantity: data.dailyQuantity,
-      ratePerLiter: data.ratePerLiter,
-      monthlyAmount: data.dailyQuantity * data.ratePerLiter * 30,
+      ratePerLiter: appliedRate,
+      monthlyAmount: 0,
       workerId: data.workerId || 0,
       workerName: worker?.name,
       status: data.status || 'active',
