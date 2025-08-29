@@ -11,11 +11,16 @@ export interface ApiResponse<T = any> {
   message?: string;
 }
 
-export type PaymentStatus = 'paid' | 'pending' | 'partial' | 'overdue';
-export type PaymentMethod = 'UPI' | 'Cash' | 'Bank Transfer' | 'Card' | 'Cheque';
-export type UserRole = 'Super Admin' | 'Manager' | 'Worker' | 'Viewer';
-export type CustomerStatus = 'active' | 'inactive';
-export type WorkerStatus = 'active' | 'inactive';
+export type PaymentStatus = "paid" | "pending" | "partial" | "overdue";
+export type PaymentMethod =
+  | "UPI"
+  | "Cash"
+  | "Bank Transfer"
+  | "Card"
+  | "Cheque";
+export type UserRole = "Super Admin" | "Manager" | "Worker" | "Viewer";
+export type CustomerStatus = "active" | "inactive";
+export type WorkerStatus = "active" | "inactive";
 
 // Area types
 export interface Area {
@@ -174,7 +179,7 @@ export interface DailyDelivery {
   quantityDelivered: number;
   ratePerLiter: number;
   dailyAmount: number;
-  status: 'delivered' | 'missed' | 'cancelled';
+  status: "delivered" | "missed" | "cancelled";
   notes?: string;
   deliveryTime?: string;
   createdAt: string;
@@ -216,7 +221,7 @@ export interface CreateDailyDeliveryRequest {
   date: string;
   quantityDelivered: number;
   ratePerLiter: number;
-  status?: 'delivered' | 'missed' | 'cancelled';
+  status?: "delivered" | "missed" | "cancelled";
   notes?: string;
   deliveryTime?: string;
 }
@@ -306,6 +311,7 @@ export interface PricingSettings {
   deliveryCharge: number;
   lateFee: number;
   currency: string;
+  effectiveDate?: string;
 }
 
 export interface PaymentGatewaySettings {
@@ -326,7 +332,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  status: 'active' | 'inactive';
+  status: "active" | "inactive";
   lastLogin?: string;
   createdAt: string;
   updatedAt: string;
@@ -359,7 +365,7 @@ export interface DashboardStats {
 
 export interface RecentActivity {
   id: number;
-  type: 'payment' | 'delivery' | 'new_customer' | 'payment_due';
+  type: "payment" | "delivery" | "new_customer" | "payment_due";
   description: string;
   amount?: number;
   customer?: string;
@@ -389,7 +395,7 @@ export interface EndOfDayProcess {
   totalMilkDelivered: number;
   totalRevenue: number;
   processedAt: string;
-  status: 'completed' | 'failed' | 'partial';
+  status: "completed" | "failed" | "partial";
   notes?: string;
 }
 
@@ -433,5 +439,5 @@ export interface SearchFilters {
   page?: number;
   limit?: number;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }

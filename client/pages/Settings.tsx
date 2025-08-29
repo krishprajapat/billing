@@ -76,6 +76,46 @@ export default function Settings() {
     currency: "INR",
   });
 
+  // Check if current time is within allowed window (6 PM to 10 PM)
+  const isWithinAllowedTime = () => {
+    const currentHour = currentTime.getHours();
+    return currentHour >= 18 && currentHour < 22; // 6 PM to 10 PM
+  };
+
+  const getTimeStatus = () => {
+    const currentHour = currentTime.getHours();
+    const currentMinute = currentTime.getMinutes();
+
+    if (currentHour < 18) {
+      // Before 6 PM
+      const hoursUntil = 18 - currentHour;
+      const minutesUntil = 60 - currentMinute;
+      return {
+        allowed: false,
+        message: `Rate changes allowed from 6:00 PM. ${hoursUntil}h ${minutesUntil}m remaining.`,
+        color: "text-orange-600",
+      };
+    } else if (currentHour >= 22) {
+      // After 10 PM
+      const hoursUntil = 24 - currentHour + 18;
+      const minutesUntil = 60 - currentMinute;
+      return {
+        allowed: false,
+        message: `Rate changes allowed from 6:00 PM tomorrow. ${hoursUntil}h ${minutesUntil}m remaining.`,
+        color: "text-red-600",
+      };
+    } else {
+      // Between 6 PM and 10 PM
+      const hoursRemaining = 22 - currentHour;
+      const minutesRemaining = 60 - currentMinute;
+      return {
+        allowed: true,
+        message: `Rate changes allowed! ${hoursRemaining}h ${minutesRemaining}m remaining.`,
+        color: "text-green-600",
+      };
+    }
+  };
+
   // Removed payment gateway UI
 
   const [users] = useState([
@@ -142,6 +182,17 @@ export default function Settings() {
     fetchSettings();
   }, []);
 
+  // Real-time clock update for time status
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000); // Update every second
+
+    return () => clearInterval(timer);
+  }, []);
+
   const handleSaveBusinessSettings = async () => {
     try {
       const updated = await settingsApi.updateBusinessSettings({
@@ -174,6 +225,13 @@ export default function Settings() {
   };
 
   const handleSavePricingSettings = async () => {
+    // Check time restriction first
+    if (!isWithinAllowedTime()) {
+      const timeStatus = getTimeStatus();
+      alert(`Rate changes are not allowed at this time. ${timeStatus.message}`);
+      return;
+    }
+
     try {
       // Map pricePerLiter to defaultRate for backend compatibility
       const updatedSettings = await settingsApi.updatePricingSettings({
@@ -402,6 +460,44 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Time Restriction Alert */}
+                <div
+                  className={`p-4 border rounded-lg ${isWithinAllowedTime() ? "bg-green-50 border-green-200" : "bg-orange-50 border-orange-200"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-3 h-3 rounded-full ${isWithinAllowedTime() ? "bg-green-500" : "bg-orange-500"}`}
+                      ></div>
+                      <span className="font-medium">Rate Change Window</span>
+                    </div>
+                    <span className="text-sm font-mono text-muted-foreground">
+                      {currentTime.toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <p className={`text-sm ${getTimeStatus().color}`}>
+                    {getTimeStatus().message}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Rate changes are only allowed between 6:00 PM and 10:00 PM
+                    daily
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="flex-1 bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          isWithinAllowedTime() ? "bg-green-500" : "bg-gray-300"
+                        }`}
+                        style={{
+                          width: `${Math.min(100, Math.max(0, ((currentTime.getHours() - 6) / 16) * 100))}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">6 PM</span>
+                    <span className="text-xs text-muted-foreground">10 PM</span>
+                  </div>
+                </div>
+
                 <div className="max-w-md">
                   <div className="space-y-2">
                     <Label htmlFor="pricePerLiter">Price per Liter (₹)</Label>
@@ -419,6 +515,12 @@ export default function Settings() {
                           pricePerLiter: value,
                         });
                       }}
+                      disabled={!isWithinAllowedTime()}
+                      className={
+                        !isWithinAllowedTime()
+                          ? "opacity-50 cursor-not-allowed"
+                          : ""
+                      }
                     />
                     <p className="text-xs text-muted-foreground">
                       This price will apply to all customers universally
@@ -436,7 +538,15 @@ export default function Settings() {
                   </p>
                 </div>
 
-                <Button onClick={handleSavePricingSettings}>
+                <Button
+                  onClick={handleSavePricingSettings}
+                  disabled={!isWithinAllowedTime()}
+                  className={
+                    !isWithinAllowedTime()
+                      ? "opacity-50 cursor-not-allowed"
+                      : ""
+                  }
+                >
                   <Save className="h-4 w-4 mr-2" />
                   Save Pricing Settings
                 </Button>

@@ -35,8 +35,47 @@ export const getPricingSettings: RequestHandler = async (_req, res) => {
 
 // Update pricing settings
 export const updatePricingSettings: RequestHandler = async (req, res) => {
-export const updatePricingSettings: RequestHandler = async (req, res) => {
   try {
+    // Check if rate is being changed and validate time window
+    const currentSettings = await supabaseDatabase.getPricingSettings();
+    if (currentSettings) {
+      const newSettings = req.body as PricingSettings;
+      if (
+        newSettings.defaultRate !== currentSettings.defaultRate ||
+        newSettings.premiumRate !== currentSettings.premiumRate ||
+        newSettings.bulkRate !== currentSettings.bulkRate
+      ) {
+        const now = new Date();
+        const currentHour = now.getHours();
+        const isValidTime = currentHour >= 18 && currentHour < 22; // 6 PM to 10 PM
+
+        if (!isValidTime) {
+          return res.status(400).json({
+            success: false,
+            error: "Rate changes are only allowed between 6:00 PM and 10:00 PM",
+          });
+        }
+
+        // Calculate effective date (next day)
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const effectiveDate = tomorrow.toISOString().split("T")[0];
+
+        // Store the new rates with effective date (next day)
+        const updatedSettings = await supabaseDatabase.updatePricingSettings({
+          ...newSettings,
+          effectiveDate,
+        });
+
+        const response: ApiResponse<PricingSettings> = {
+          success: true,
+          data: updatedSettings,
+          message: `New rates will be effective from ${effectiveDate}`,
+        };
+        return res.json(response);
+      }
+    }
+
     const updatedSettings = await supabaseDatabase.updatePricingSettings(
       req.body as PricingSettings,
     );
@@ -82,7 +121,6 @@ export const getBusinessSettings: RequestHandler = async (_req, res) => {
 };
 
 // Update business settings
-export const updateBusinessSettings: RequestHandler = async (req, res) => {
 export const updateBusinessSettings: RequestHandler = async (req, res) => {
   try {
     const updatedSettings = await supabaseDatabase.updateBusinessSettings(

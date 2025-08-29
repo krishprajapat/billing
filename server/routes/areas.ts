@@ -19,7 +19,6 @@ export const getAreas: RequestHandler = async (_req, res) => {
 };
 
 export const getAreaById: RequestHandler = async (req, res) => {
-export const getAreaById: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const area = await supabaseDatabase.getAreaById(parseInt(id));
@@ -34,7 +33,6 @@ export const getAreaById: RequestHandler = async (req, res) => {
   }
 };
 
-export const createArea: RequestHandler = async (req, res) => {
 export const createArea: RequestHandler = async (req, res) => {
   try {
     const data: CreateAreaRequest = req.body;
@@ -60,7 +58,6 @@ export const createArea: RequestHandler = async (req, res) => {
 };
 
 export const updateArea: RequestHandler = async (req, res) => {
-export const updateArea: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const data: UpdateAreaRequest = req.body;
@@ -83,7 +80,6 @@ export const updateArea: RequestHandler = async (req, res) => {
   }
 };
 
-export const deleteArea: RequestHandler = async (req, res) => {
 export const deleteArea: RequestHandler = async (req, res) => {
   try {
     const { id } = req.params;

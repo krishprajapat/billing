@@ -201,6 +201,7 @@ CREATE TABLE pricing_settings (
     delivery_charge NUMERIC(8,2) DEFAULT 0,
     late_fee NUMERIC(8,2) DEFAULT 50,
     currency TEXT DEFAULT 'INR',
+    effective_date DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

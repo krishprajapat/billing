@@ -11,7 +11,6 @@ import { supabase } from "../database/supabase";
 import { supabaseDatabase } from "../database/supabase-models";
 
 export const getMonthlyReports: RequestHandler = async (req, res) => {
-export const getMonthlyReports: RequestHandler = async (req, res) => {
   try {
     const { period = "6months" } = req.query as any;
     const customers = await supabaseDatabase.getCustomers({ status: "active" });
@@ -84,16 +83,18 @@ export const getMonthlyReports: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching monthly reports:', error);
+    console.error("Error fetching monthly reports:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch monthly reports",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch monthly reports",
     };
     res.status(500).json(response);
   }
 };
 
-export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
 export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
   try {
     const workers = await supabaseDatabase.getWorkers({ status: "active" });
@@ -139,10 +140,13 @@ export const getWorkerPerformanceReport: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching worker performance report:', error);
+    console.error("Error fetching worker performance report:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch worker performance report",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch worker performance report",
     };
     res.status(500).json(response);
   }
@@ -205,16 +209,18 @@ export const getAreaWiseReport: RequestHandler = async (_req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching area-wise report:', error);
+    console.error("Error fetching area-wise report:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch area-wise report",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch area-wise report",
     };
     res.status(500).json(response);
   }
 };
 
-export const getPaymentMethodReport: RequestHandler = async (req, res) => {
 export const getPaymentMethodReport: RequestHandler = async (req, res) => {
   try {
     const { period = "6months" } = req.query as any;
@@ -264,10 +270,13 @@ export const getPaymentMethodReport: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching payment method report:', error);
+    console.error("Error fetching payment method report:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch payment method report",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch payment method report",
     };
     res.status(500).json(response);
   }
@@ -299,19 +308,34 @@ export const getCustomerGrowthReport: RequestHandler = (req, res) => {
   }
 };
 
-export const getRevenueAnalysis: RequestHandler = (req, res) => {
+export const getRevenueAnalysis: RequestHandler = async (_req, res) => {
   try {
-    const customers = db.getCustomers({ status: "active" });
-    const payments = db.getPayments();
+    const customers = await supabaseDatabase.getCustomers({ status: "active" });
+    const { data: payments } = await (supabase as any)
+      .from("payments")
+      .select("*");
 
     const totalPossibleRevenue = customers.reduce(
-      (sum, c) => sum + c.monthlyAmount,
+      (sum, c) => sum + (c.monthlyAmount || 0),
       0,
     );
-    const actualRevenue = payments
-      .filter((p) => p.status === "paid")
-      .reduce((sum, p) => sum + p.amount, 0);
-    const pendingRevenue = customers.reduce((sum, c) => sum + c.pendingDues, 0);
+    const actualRevenue = (payments || [])
+      .filter((p: any) => p.status === "paid")
+      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const pendingRevenue = customers.reduce(
+      (sum, c) => sum + (c.pendingDues || 0),
+      0,
+    );
+
+    const topRevenueAreas = customers.reduce(
+      (acc: any, customer) => {
+        const key = customer.areaName || "Unknown";
+        if (!acc[key]) acc[key] = 0;
+        acc[key] += customer.monthlyAmount || 0;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     const revenueAnalysis = {
       totalPossibleRevenue,
@@ -323,13 +347,7 @@ export const getRevenueAnalysis: RequestHandler = (req, res) => {
           : 0,
       averageRevenuePerCustomer:
         customers.length > 0 ? totalPossibleRevenue / customers.length : 0,
-      topRevenueAreas: customers.reduce((acc: any, customer) => {
-        if (!acc[customer.area]) {
-          acc[customer.area] = 0;
-        }
-        acc[customer.area] += customer.monthlyAmount;
-        return acc;
-      }, {}),
+      topRevenueAreas,
     };
 
     const response: ApiResponse = {
@@ -346,24 +364,27 @@ export const getRevenueAnalysis: RequestHandler = (req, res) => {
   }
 };
 
-export const exportReportData: RequestHandler = (req, res) => {
+export const exportReportData: RequestHandler = async (req, res) => {
   try {
-    const { reportType, format = "json" } = req.query;
+    const { reportType, format = "json" } = req.query as any;
 
     let data: any = {};
 
     switch (reportType) {
       case "customers":
-        data = db.getCustomers();
+        data = await supabaseDatabase.getCustomers();
         break;
       case "workers":
-        data = db.getWorkers();
+        data = await supabaseDatabase.getWorkers();
         break;
-      case "payments":
-        data = db.getPayments();
+      case "payments": {
+        const { data: pay } = await (supabase as any)
+          .from("payments")
+          .select("*");
+        data = pay || [];
         break;
+      }
       case "monthly":
-        // Would call getMonthlyReports logic here
         data = [];
         break;
       default:
@@ -374,7 +395,6 @@ export const exportReportData: RequestHandler = (req, res) => {
     }
 
     if (format === "csv") {
-      // In a real app, convert to CSV format
       res.setHeader("Content-Type", "text/csv");
       res.setHeader(
         "Content-Disposition",
@@ -398,11 +418,13 @@ export const exportReportData: RequestHandler = (req, res) => {
   }
 };
 
-export const getBusinessSummary: RequestHandler = (req, res) => {
+export const getBusinessSummary: RequestHandler = async (_req, res) => {
   try {
-    const customers = db.getCustomers();
-    const workers = db.getWorkers();
-    const payments = db.getPayments();
+    const customers = await supabaseDatabase.getCustomers();
+    const workers = await supabaseDatabase.getWorkers();
+    const { data: payments } = await (supabase as any)
+      .from("payments")
+      .select("*");
 
     const activeCustomers = customers.filter((c) => c.status === "active");
     const activeWorkers = workers.filter((w) => w.status === "active");
@@ -413,24 +435,29 @@ export const getBusinessSummary: RequestHandler = (req, res) => {
       totalWorkers: workers.length,
       activeWorkers: activeWorkers.length,
       totalRevenue: activeCustomers.reduce(
-        (sum, c) => sum + c.monthlyAmount,
+        (sum, c) => sum + (c.monthlyAmount || 0),
         0,
       ),
       totalMilkVolume: activeCustomers.reduce(
-        (sum, c) => sum + c.dailyQuantity * 30,
+        (sum, c) => sum + (c.dailyQuantity || 0) * 30,
         0,
       ),
-      pendingDues: activeCustomers.reduce((sum, c) => sum + c.pendingDues, 0),
-      totalTransactions: payments.length,
+      pendingDues: activeCustomers.reduce(
+        (sum, c) => sum + (c.pendingDues || 0),
+        0,
+      ),
+      totalTransactions: (payments || []).length,
       averageOrderValue:
         activeCustomers.length > 0
-          ? activeCustomers.reduce((sum, c) => sum + c.monthlyAmount, 0) /
-            activeCustomers.length
+          ? activeCustomers.reduce(
+              (sum, c) => sum + (c.monthlyAmount || 0),
+              0,
+            ) / activeCustomers.length
           : 0,
-      customerRetentionRate: 96.8, // Mock value
+      customerRetentionRate: 96.8,
       workerEfficiency:
         activeWorkers.length > 0
-          ? activeWorkers.reduce((sum, w) => sum + w.efficiency, 0) /
+          ? activeWorkers.reduce((sum, w) => sum + (w.efficiency || 0), 0) /
             activeWorkers.length
           : 0,
     };

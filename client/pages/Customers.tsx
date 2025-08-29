@@ -1,12 +1,31 @@
 import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,10 +66,29 @@ import {
   AlertCircle,
   Clock,
 } from "lucide-react";
-import { customerApi, workerApi, areaApi, dailyApi, settingsApi, ApiError } from "@/lib/api-client";
-import { PDFBillGenerator, shareViaWhatsApp, generateRazorpayPaymentLink, BillData, BusinessInfo } from "@/lib/pdf-generator";
+import {
+  customerApi,
+  workerApi,
+  areaApi,
+  dailyApi,
+  settingsApi,
+  ApiError,
+} from "@/lib/api-client";
+import {
+  PDFBillGenerator,
+  shareViaWhatsApp,
+  generateRazorpayPaymentLink,
+  BillData,
+  BusinessInfo,
+} from "@/lib/pdf-generator";
 import { useNavigate } from "react-router-dom";
-import { Customer, CreateCustomerRequest, UpdateCustomerRequest, Worker, Area } from "../../shared/api";
+import {
+  Customer,
+  CreateCustomerRequest,
+  UpdateCustomerRequest,
+  Worker,
+  Area,
+} from "../../shared/api";
 
 export default function Customers() {
   const navigate = useNavigate();
@@ -65,7 +103,9 @@ export default function Customers() {
   const [filterWorker, setFilterWorker] = useState("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(
+    null,
+  );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [newCustomer, setNewCustomer] = useState<CreateCustomerRequest>({
@@ -83,6 +123,11 @@ export default function Customers() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [generatingBill, setGeneratingBill] = useState<number | null>(null);
   const [universalPricePerLiter, setUniversalPricePerLiter] = useState(60);
+  const [calculatedMonthlyAmount, setCalculatedMonthlyAmount] =
+    useState<number>(0);
+  const [customerMonthlyAmounts, setCustomerMonthlyAmounts] = useState<
+    Record<number, number>
+  >({});
 
   useEffect(() => {
     fetchData();
@@ -109,47 +154,112 @@ export default function Customers() {
     if (hour < 18) {
       return {
         message: `Quantity changes will be available at 6:00 PM (in ${18 - hour} hours)`,
-        type: 'info' as const,
+        type: "info" as const,
       };
     } else if (hour >= 22) {
       return {
-        message: 'Quantity changes are closed for today. Try again tomorrow between 6:00 PM - 10:00 PM',
-        type: 'warning' as const,
+        message:
+          "Quantity changes are closed for today. Try again tomorrow between 6:00 PM - 10:00 PM",
+        type: "warning" as const,
       };
     } else {
-      const minutesLeft = (22 - hour - 1) * 60 + (60 - currentTime.getMinutes());
+      const minutesLeft =
+        (22 - hour - 1) * 60 + (60 - currentTime.getMinutes());
       return {
         message: `You can change milk quantity. Time remaining: ${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}m`,
-        type: 'success' as const,
+        type: "success" as const,
       };
     }
   };
 
-  // Calculate new monthly amount with remaining days logic
-  const calculateNewMonthlyAmount = (customer: Customer, newQuantity: number, newRate: number) => {
+  // ROBUST: Calculate new monthly amount using real delivery data
+  const calculateNewMonthlyAmount = async (
+    customer: Customer,
+    newQuantity: number,
+    newRate: number,
+  ) => {
     if (!customer) return 0;
 
-    const currentMonthlyAmount = customer.monthlyAmount || 0;
-    const currentDaysDelivered = customer.currentMonthDeliveries || 0;
+    try {
+      // Get real delivery data from API
+      const response = await fetch(
+        `/api/customers/${customer.id}/current-month-bill`,
+      );
+      if (!response.ok) {
+        console.error("Failed to fetch current month bill");
+        return 0;
+      }
 
-    // Get remaining days in current month
-    const today = new Date();
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const remainingDays = daysInMonth - currentDaysDelivered;
+      const data = await response.json();
+      if (!data.success) {
+        console.error("API error:", data.error);
+        return 0;
+      }
 
-    // Current amount + (remaining days × new rate per day)
-    const dailyRate = newQuantity * newRate;
-    const additionalAmount = remainingDays * dailyRate;
+      const billData = data.data;
 
-    return currentMonthlyAmount + additionalAmount;
+      // ROBUST: Validate data before calculation
+      const deliveredAmount = Number(billData.deliveredAmount) || 0;
+      const remainingDays = Number(billData.remainingDays) || 0;
+      const validNewRate = Number(newRate) || 0;
+      const validNewQuantity = Number(newQuantity) || 0;
+
+      const remainingAmount = remainingDays * validNewRate * validNewQuantity;
+      const newMonthlyAmount = deliveredAmount + remainingAmount;
+
+      console.log(`ROBUST Frontend calculation for ${customer.name}:`, {
+        deliveredAmount,
+        deliveredDays: billData.deliveredDays,
+        remainingDays,
+        newRate: validNewRate,
+        newQuantity: validNewQuantity,
+        remainingAmount,
+        newMonthlyAmount,
+      });
+
+      return newMonthlyAmount;
+    } catch (error) {
+      console.error("Error calculating new monthly amount:", error);
+      return 0;
+    }
   };
+
+  // Update calculated monthly amount when edit customer changes
+  useEffect(() => {
+    if (editingCustomer && editCustomer.dailyQuantity) {
+      const newRate =
+        editCustomer.ratePerLiter ||
+        editingCustomer.ratePerLiter ||
+        universalPricePerLiter;
+      calculateNewMonthlyAmount(
+        editingCustomer,
+        editCustomer.dailyQuantity,
+        newRate,
+      )
+        .then((amount) => setCalculatedMonthlyAmount(amount))
+        .catch((error) => {
+          console.error("Error calculating monthly amount:", error);
+          setCalculatedMonthlyAmount(0);
+        });
+    }
+  }, [
+    editingCustomer,
+    editCustomer.dailyQuantity,
+    editCustomer.ratePerLiter,
+    universalPricePerLiter,
+  ]);
 
   // Reset worker selection when area changes in new customer form
   useEffect(() => {
     if (newCustomer.areaId) {
-      const availableWorkers = workers.filter(w => w.areaId === newCustomer.areaId && w.status === 'active');
-      if (availableWorkers.length === 0 || !availableWorkers.find(w => w.id === newCustomer.workerId)) {
-        setNewCustomer(prev => ({ ...prev, workerId: 0 }));
+      const availableWorkers = workers.filter(
+        (w) => w.areaId === newCustomer.areaId && w.status === "active",
+      );
+      if (
+        availableWorkers.length === 0 ||
+        !availableWorkers.find((w) => w.id === newCustomer.workerId)
+      ) {
+        setNewCustomer((prev) => ({ ...prev, workerId: 0 }));
       }
     }
   }, [newCustomer.areaId, workers]);
@@ -157,9 +267,14 @@ export default function Customers() {
   // Reset worker selection when area changes in edit customer form
   useEffect(() => {
     if (editCustomer.areaId) {
-      const availableWorkers = workers.filter(w => w.areaId === editCustomer.areaId && w.status === 'active');
-      if (availableWorkers.length === 0 || !availableWorkers.find(w => w.id === editCustomer.workerId)) {
-        setEditCustomer(prev => ({ ...prev, workerId: 0 }));
+      const availableWorkers = workers.filter(
+        (w) => w.areaId === editCustomer.areaId && w.status === "active",
+      );
+      if (
+        availableWorkers.length === 0 ||
+        !availableWorkers.find((w) => w.id === editCustomer.workerId)
+      ) {
+        setEditCustomer((prev) => ({ ...prev, workerId: 0 }));
       }
     }
   }, [editCustomer.areaId, workers]);
@@ -169,12 +284,13 @@ export default function Customers() {
       setLoading(true);
       setError(null);
 
-      const [customersData, workersData, areasData, pricingSettings] = await Promise.all([
-        customerApi.getAll(),
-        workerApi.getAll(),
-        areaApi.getAll(),
-        settingsApi.getPricingSettings(),
-      ]);
+      const [customersData, workersData, areasData, pricingSettings] =
+        await Promise.all([
+          customerApi.getAll(),
+          workerApi.getAll(),
+          areaApi.getAll(),
+          settingsApi.getPricingSettings(),
+        ]);
 
       setCustomers(customersData);
       setWorkers(workersData);
@@ -182,24 +298,78 @@ export default function Customers() {
       setUniversalPricePerLiter(pricingSettings.defaultRate);
 
       // Update new customer form with universal price
-      setNewCustomer(prev => ({ ...prev, ratePerLiter: pricingSettings.defaultRate }));
+      setNewCustomer((prev) => ({
+        ...prev,
+        ratePerLiter: pricingSettings.defaultRate,
+      }));
+
+      // Fetch real-time monthly amounts for all customers
+      await fetchAllCustomerMonthlyAmounts(customersData);
     } catch (err) {
-      console.error('Failed to fetch data:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to load data');
+      console.error("Failed to fetch data:", err);
+      setError(err instanceof ApiError ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchAllCustomerMonthlyAmounts = async (customersList: Customer[]) => {
+    try {
+      const amounts: Record<number, number> = {};
+
+      // ROBUST: Fetch monthly amounts for all customers in parallel
+      const promises = customersList.map(async (customer) => {
+        try {
+          const response = await fetch(
+            `/api/customers/${customer.id}/current-month-bill`,
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              // FIXED: Show only delivered amount (till date), not total with remaining days
+              amounts[customer.id] = data.data.deliveredAmount;
+              console.log(
+                `Customer ${customer.name}: ₹${data.data.deliveredAmount} (${data.data.deliveredDays} days delivered till date)`,
+              );
+            }
+          }
+        } catch (error) {
+          console.error(
+            `Failed to fetch monthly amount for customer ${customer.id}:`,
+            error,
+          );
+          amounts[customer.id] = 0;
+        }
+      });
+
+      await Promise.all(promises);
+      setCustomerMonthlyAmounts(amounts);
+
+      console.log(
+        "ROBUST: Fetched monthly amounts for all customers:",
+        amounts,
+      );
+    } catch (error) {
+      console.error("Failed to fetch customer monthly amounts:", error);
+    }
+  };
+
   const filteredCustomers = customers.filter((customer) => {
-    const matchesSearch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         customer.phone.includes(searchTerm) ||
-                         customer.address.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === "all" || customer.status === filterStatus;
-    const matchesArea = filterArea === "all" || customer.areaId.toString() === filterArea;
-    const matchesWorker = filterWorker === "all" ||
-                         (filterWorker === "unassigned" && (!customer.workerId || customer.workerId === 0)) ||
-                         (filterWorker === "assigned" && customer.workerId && customer.workerId > 0);
+    const matchesSearch =
+      customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.phone.includes(searchTerm) ||
+      customer.address.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus =
+      filterStatus === "all" || customer.status === filterStatus;
+    const matchesArea =
+      filterArea === "all" || customer.areaId.toString() === filterArea;
+    const matchesWorker =
+      filterWorker === "all" ||
+      (filterWorker === "unassigned" &&
+        (!customer.workerId || customer.workerId === 0)) ||
+      (filterWorker === "assigned" &&
+        customer.workerId &&
+        customer.workerId > 0);
 
     return matchesSearch && matchesStatus && matchesArea && matchesWorker;
   });
@@ -225,8 +395,10 @@ export default function Customers() {
       });
       setIsAddDialogOpen(false);
     } catch (err) {
-      console.error('Failed to create customer:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to create customer');
+      console.error("Failed to create customer:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to create customer",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -248,7 +420,12 @@ export default function Customers() {
   };
 
   const handleUpdateCustomer = async () => {
-    if (!editingCustomer || !editCustomer.name || !editCustomer.phone || !editCustomer.address) {
+    if (
+      !editingCustomer ||
+      !editCustomer.name ||
+      !editCustomer.phone ||
+      !editCustomer.address
+    ) {
       return;
     }
 
@@ -256,11 +433,12 @@ export default function Customers() {
       setSubmitting(true);
 
       // Check if area is being changed
-      const isAreaChanged = editCustomer.areaId && editCustomer.areaId !== editingCustomer.areaId;
+      const isAreaChanged =
+        editCustomer.areaId && editCustomer.areaId !== editingCustomer.areaId;
 
       if (isAreaChanged) {
         const confirmChange = confirm(
-          `Changing customer's area will unassign their current worker. Are you sure you want to continue?`
+          `Changing customer's area will unassign their current worker. Are you sure you want to continue?`,
         );
         if (!confirmChange) {
           setSubmitting(false);
@@ -271,16 +449,23 @@ export default function Customers() {
         editCustomer.workerId = 0;
       }
 
-      const updatedCustomer = await customerApi.update(editingCustomer.id, editCustomer);
-      setCustomers(customers.map(c =>
-        c.id === editingCustomer.id ? updatedCustomer : c
-      ));
+      const updatedCustomer = await customerApi.update(
+        editingCustomer.id,
+        editCustomer,
+      );
+      setCustomers(
+        customers.map((c) =>
+          c.id === editingCustomer.id ? updatedCustomer : c,
+        ),
+      );
       setIsEditDialogOpen(false);
       setEditingCustomer(null);
       setEditCustomer({});
     } catch (err) {
-      console.error('Failed to update customer:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to update customer');
+      console.error("Failed to update customer:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to update customer",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -296,31 +481,41 @@ export default function Customers() {
 
     try {
       await customerApi.delete(customerToDelete.id);
-      setCustomers(customers.filter(c => c.id !== customerToDelete.id));
+      setCustomers(customers.filter((c) => c.id !== customerToDelete.id));
       setIsDeleteDialogOpen(false);
       setCustomerToDelete(null);
     } catch (err) {
-      console.error('Failed to delete customer:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to delete customer');
+      console.error("Failed to delete customer:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to delete customer",
+      );
     }
   };
 
   const handleToggleStatus = async (customer: Customer) => {
     try {
       const newStatus = customer.status === "active" ? "inactive" : "active";
-      const updatedCustomer = await customerApi.update(customer.id, { status: newStatus });
-      setCustomers(customers.map(c =>
-        c.id === customer.id ? updatedCustomer : c
-      ));
+      const updatedCustomer = await customerApi.update(customer.id, {
+        status: newStatus,
+      });
+      setCustomers(
+        customers.map((c) => (c.id === customer.id ? updatedCustomer : c)),
+      );
     } catch (err) {
-      console.error('Failed to update customer status:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to update customer status');
+      console.error("Failed to update customer status:", err);
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Failed to update customer status",
+      );
     }
   };
 
   const handleViewPaymentDetails = (customer: Customer) => {
     // Navigate to payments page with customer filter
-    navigate(`/payments?customerId=${customer.id}&customerName=${encodeURIComponent(customer.name)}`);
+    navigate(
+      `/payments?customerId=${customer.id}&customerName=${encodeURIComponent(customer.name)}`,
+    );
   };
 
   const handleSendBill = async (customer: Customer) => {
@@ -329,7 +524,9 @@ export default function Customers() {
 
       // Get current month's delivery data
       const currentDate = new Date();
-      const currentMonth = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+      const currentMonth = (currentDate.getMonth() + 1)
+        .toString()
+        .padStart(2, "0");
       const currentYear = currentDate.getFullYear();
 
       // Get daily deliveries for this customer for current month
@@ -338,28 +535,31 @@ export default function Customers() {
       });
 
       // Filter deliveries for current month
-      const currentMonthDeliveries = deliveries.filter(delivery => {
+      const currentMonthDeliveries = deliveries.filter((delivery) => {
         const deliveryDate = new Date(delivery.date);
-        return deliveryDate.getMonth() === currentDate.getMonth() &&
-               deliveryDate.getFullYear() === currentYear;
+        return (
+          deliveryDate.getMonth() === currentDate.getMonth() &&
+          deliveryDate.getFullYear() === currentYear
+        );
       });
 
       // Transform delivery data for PDF
-      const billDeliveries = currentMonthDeliveries.map(delivery => ({
+      const billDeliveries = currentMonthDeliveries.map((delivery) => ({
         date: delivery.date,
         quantity: delivery.quantityDelivered,
         rate: delivery.ratePerLiter,
-        amount: delivery.dailyAmount
+        amount: delivery.dailyAmount,
       }));
 
       // Generate Razorpay payment link
       const billNumber = `BILL-${customer.id}-${currentMonth}${currentYear}`;
-      const totalAmount = (customer.currentMonthAmount || 0) + (customer.pendingDues || 0);
+      const totalAmount =
+        (customer.currentMonthAmount || 0) + (customer.pendingDues || 0);
       const paymentLink = await generateRazorpayPaymentLink(
         totalAmount,
         customer.name,
         customer.phone,
-        billNumber
+        billNumber,
       );
 
       // Prepare bill data
@@ -371,7 +571,7 @@ export default function Customers() {
         totalAmount,
         billMonth: `${currentMonth}/${currentYear}`,
         billNumber,
-        razorpayPaymentLink: paymentLink
+        razorpayPaymentLink: paymentLink,
       };
 
       // Business information (this would typically come from settings)
@@ -380,7 +580,7 @@ export default function Customers() {
         address: "123 Main Street, City, State - 123456",
         phone: "+91 98765 43210",
         email: "contact@milkflow.com",
-        gst: "29XXXXX1234X1ZX"
+        gst: "29XXXXX1234X1ZX",
       };
 
       // Generate PDF
@@ -389,23 +589,30 @@ export default function Customers() {
 
       // Share via WhatsApp
       shareViaWhatsApp(customer.phone, pdfBlob, customer.name, totalAmount);
-
     } catch (err) {
-      console.error('Failed to generate bill:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to generate bill');
+      console.error("Failed to generate bill:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to generate bill",
+      );
     } finally {
       setGeneratingBill(null);
     }
   };
 
-
   // Calculate statistics based on daily billing
-  const totalActiveCustomers = customers.filter(c => c.status === "active").length;
-  const totalPendingDues = customers.reduce((sum, c) => sum + (c.pendingDues || 0), 0);
-  const totalMonthlyRevenue = customers.filter(c => c.status === "active")
-    .reduce((sum, c) => sum + (c.monthlyAmount || 0), 0); // Use actual daily accumulated amount
+  const totalActiveCustomers = customers.filter(
+    (c) => c.status === "active",
+  ).length;
+  const totalPendingDues = customers.reduce(
+    (sum, c) => sum + (c.pendingDues || 0),
+    0,
+  );
+  const totalMonthlyRevenue = customers
+    .filter((c) => c.status === "active")
+    .reduce((sum, c) => sum + (customerMonthlyAmounts[c.id] || 0), 0); // Use real-time calculated amounts
   const currentDayOfMonth = new Date().getDate();
-  const totalCurrentMonthDeliveries = customers.filter(c => c.status === "active")
+  const totalCurrentMonthDeliveries = customers
+    .filter((c) => c.status === "active")
     .reduce((sum, c) => sum + (c.currentMonthDeliveries || 0), 0);
 
   if (loading) {
@@ -478,7 +685,9 @@ export default function Customers() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Customer Management</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Customer Management
+            </h1>
             <p className="text-muted-foreground">
               Manage your customers, track deliveries, and handle billing
             </p>
@@ -504,7 +713,9 @@ export default function Customers() {
                     <Input
                       id="name"
                       value={newCustomer.name}
-                      onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
+                      onChange={(e) =>
+                        setNewCustomer({ ...newCustomer, name: e.target.value })
+                      }
                       placeholder="Enter customer name"
                       required
                     />
@@ -514,7 +725,12 @@ export default function Customers() {
                     <Input
                       id="phone"
                       value={newCustomer.phone}
-                      onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
+                      onChange={(e) =>
+                        setNewCustomer({
+                          ...newCustomer,
+                          phone: e.target.value,
+                        })
+                      }
                       placeholder="+91 98765 43210"
                     />
                   </div>
@@ -524,40 +740,85 @@ export default function Customers() {
                   <Textarea
                     id="address"
                     value={newCustomer.address}
-                    onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
+                    onChange={(e) =>
+                      setNewCustomer({
+                        ...newCustomer,
+                        address: e.target.value,
+                      })
+                    }
                     placeholder="Enter full address"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="area">Area/Sector</Label>
-                    <Select value={newCustomer.areaId ? newCustomer.areaId.toString() : ""} onValueChange={(value) => setNewCustomer({...newCustomer, areaId: parseInt(value)})}>
+                    <Select
+                      value={
+                        newCustomer.areaId ? newCustomer.areaId.toString() : ""
+                      }
+                      onValueChange={(value) =>
+                        setNewCustomer({
+                          ...newCustomer,
+                          areaId: parseInt(value),
+                        })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select area" />
                       </SelectTrigger>
                       <SelectContent>
                         {areas.map((area) => (
-                          <SelectItem key={area.id} value={area.id.toString()}>{area.name}</SelectItem>
+                          <SelectItem key={area.id} value={area.id.toString()}>
+                            {area.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="worker">Assign Worker</Label>
-                    <Select value={newCustomer.workerId ? newCustomer.workerId.toString() : ""} onValueChange={(value) => setNewCustomer({...newCustomer, workerId: parseInt(value)})}>
+                    <Select
+                      value={
+                        newCustomer.workerId
+                          ? newCustomer.workerId.toString()
+                          : ""
+                      }
+                      onValueChange={(value) =>
+                        setNewCustomer({
+                          ...newCustomer,
+                          workerId: parseInt(value),
+                        })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select worker" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="0">No worker assigned</SelectItem>
-                        {workers.filter(worker => worker.areaId === newCustomer.areaId && worker.status === 'active').map((worker) => (
-                          <SelectItem key={worker.id} value={worker.id.toString()}>
-                            {worker.name} - {worker.areaName || 'No area'}
-                          </SelectItem>
-                        ))}
-                        {newCustomer.areaId && workers.filter(worker => worker.areaId === newCustomer.areaId && worker.status === 'active').length === 0 && (
-                          <SelectItem value="no-workers" disabled>No workers available in this area</SelectItem>
-                        )}
+                        {workers
+                          .filter(
+                            (worker) =>
+                              worker.areaId === newCustomer.areaId &&
+                              worker.status === "active",
+                          )
+                          .map((worker) => (
+                            <SelectItem
+                              key={worker.id}
+                              value={worker.id.toString()}
+                            >
+                              {worker.name} - {worker.areaName || "No area"}
+                            </SelectItem>
+                          ))}
+                        {newCustomer.areaId &&
+                          workers.filter(
+                            (worker) =>
+                              worker.areaId === newCustomer.areaId &&
+                              worker.status === "active",
+                          ).length === 0 && (
+                            <SelectItem value="no-workers" disabled>
+                              No workers available in this area
+                            </SelectItem>
+                          )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -571,14 +832,23 @@ export default function Customers() {
                       step="0.5"
                       min="0.5"
                       value={newCustomer.dailyQuantity}
-                      onChange={(e) => setNewCustomer({...newCustomer, dailyQuantity: parseFloat(e.target.value)})}
+                      onChange={(e) =>
+                        setNewCustomer({
+                          ...newCustomer,
+                          dailyQuantity: parseFloat(e.target.value),
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Universal Rate per Liter</Label>
                     <div className="p-2 bg-muted rounded border">
-                      <span className="font-medium">₹{universalPricePerLiter}</span>
-                      <p className="text-xs text-muted-foreground">Set in Settings → Pricing</p>
+                      <span className="font-medium">
+                        ₹{universalPricePerLiter}
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        Set in Settings → Pricing
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -587,19 +857,31 @@ export default function Customers() {
                     Initial Monthly Amount: <strong>₹0</strong>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    New customers start with ₹0. Milk delivery begins tomorrow and amounts will be calculated from daily deliveries.
+                    New customers start with ₹0. Milk delivery begins tomorrow
+                    and amounts will be calculated from daily deliveries.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Estimated monthly: ₹{(newCustomer.dailyQuantity * universalPricePerLiter * 30).toLocaleString()} (at {newCustomer.dailyQuantity}L/day)
+                    Estimated monthly: ₹
+                    {(
+                      newCustomer.dailyQuantity *
+                      universalPricePerLiter *
+                      30
+                    ).toLocaleString()}{" "}
+                    (at {newCustomer.dailyQuantity}L/day)
                   </p>
                 </div>
               </div>
               <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAddDialogOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button onClick={handleAddCustomer} disabled={submitting}>
-                  {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {submitting && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
                   Add Customer
                 </Button>
               </div>
@@ -611,9 +893,7 @@ export default function Customers() {
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Edit Customer</DialogTitle>
-                <DialogDescription>
-                  Update customer details
-                </DialogDescription>
+                <DialogDescription>Update customer details</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -622,7 +902,12 @@ export default function Customers() {
                     <Input
                       id="editName"
                       value={editCustomer.name || ""}
-                      onChange={(e) => setEditCustomer({...editCustomer, name: e.target.value})}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          name: e.target.value,
+                        })
+                      }
                       placeholder="Enter customer name"
                       required
                     />
@@ -632,7 +917,12 @@ export default function Customers() {
                     <Input
                       id="editPhone"
                       value={editCustomer.phone || ""}
-                      onChange={(e) => setEditCustomer({...editCustomer, phone: e.target.value})}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          phone: e.target.value,
+                        })
+                      }
                       placeholder="+91 98765 43210"
                     />
                   </div>
@@ -642,60 +932,114 @@ export default function Customers() {
                   <Textarea
                     id="editAddress"
                     value={editCustomer.address || ""}
-                    onChange={(e) => setEditCustomer({...editCustomer, address: e.target.value})}
+                    onChange={(e) =>
+                      setEditCustomer({
+                        ...editCustomer,
+                        address: e.target.value,
+                      })
+                    }
                     placeholder="Enter full address"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="editArea">Area/Sector</Label>
-                    <Select value={editCustomer.areaId?.toString() || ""} onValueChange={(value) => setEditCustomer({...editCustomer, areaId: parseInt(value)})}>
+                    <Select
+                      value={editCustomer.areaId?.toString() || ""}
+                      onValueChange={(value) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          areaId: parseInt(value),
+                        })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select area" />
                       </SelectTrigger>
                       <SelectContent>
                         {areas.map((area) => (
-                          <SelectItem key={area.id} value={area.id.toString()}>{area.name}</SelectItem>
+                          <SelectItem key={area.id} value={area.id.toString()}>
+                            {area.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editWorker">Assign Worker</Label>
-                    <Select value={editCustomer.workerId?.toString() || ""} onValueChange={(value) => setEditCustomer({...editCustomer, workerId: parseInt(value)})}>
+                    <Select
+                      value={editCustomer.workerId?.toString() || ""}
+                      onValueChange={(value) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          workerId: parseInt(value),
+                        })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select worker" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="0">No worker assigned</SelectItem>
-                        {workers.filter(worker => worker.areaId === editCustomer.areaId && worker.status === 'active').map((worker) => (
-                          <SelectItem key={worker.id} value={worker.id.toString()}>
-                            {worker.name} - {worker.areaName || 'No area'}
-                          </SelectItem>
-                        ))}
-                        {editCustomer.areaId && workers.filter(worker => worker.areaId === editCustomer.areaId && worker.status === 'active').length === 0 && (
-                          <SelectItem value="no-workers" disabled>No workers available in this area</SelectItem>
-                        )}
+                        {workers
+                          .filter(
+                            (worker) =>
+                              worker.areaId === editCustomer.areaId &&
+                              worker.status === "active",
+                          )
+                          .map((worker) => (
+                            <SelectItem
+                              key={worker.id}
+                              value={worker.id.toString()}
+                            >
+                              {worker.name} - {worker.areaName || "No area"}
+                            </SelectItem>
+                          ))}
+                        {editCustomer.areaId &&
+                          workers.filter(
+                            (worker) =>
+                              worker.areaId === editCustomer.areaId &&
+                              worker.status === "active",
+                          ).length === 0 && (
+                            <SelectItem value="no-workers" disabled>
+                              No workers available in this area
+                            </SelectItem>
+                          )}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 {/* Time Status for Quantity Changes */}
-                <Alert variant={getTimeStatus().type === 'success' ? 'default' : getTimeStatus().type === 'warning' ? 'destructive' : 'default'}>
+                <Alert
+                  variant={
+                    getTimeStatus().type === "success"
+                      ? "default"
+                      : getTimeStatus().type === "warning"
+                        ? "destructive"
+                        : "default"
+                  }
+                >
                   <Clock className="h-4 w-4" />
                   <AlertDescription>{getTimeStatus().message}</AlertDescription>
                 </Alert>
 
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="editQuantity">Daily Quantity (Liters)</Label>
+                    <Label htmlFor="editQuantity">
+                      Daily Quantity (Liters)
+                    </Label>
                     <Input
                       id="editQuantity"
                       type="number"
                       step="0.5"
                       min="0.5"
                       value={editCustomer.dailyQuantity || ""}
-                      onChange={(e) => setEditCustomer({...editCustomer, dailyQuantity: parseFloat(e.target.value)})}
+                      onChange={(e) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          dailyQuantity: parseFloat(e.target.value),
+                        })
+                      }
                       disabled={!isValidTimeWindow()}
                     />
                     {!isValidTimeWindow() && (
@@ -707,13 +1051,25 @@ export default function Customers() {
                   <div className="space-y-2">
                     <Label>Universal Rate per Liter</Label>
                     <div className="p-2 bg-muted rounded border">
-                      <span className="font-medium">₹{universalPricePerLiter}</span>
-                      <p className="text-xs text-muted-foreground">Set in Settings → Pricing</p>
+                      <span className="font-medium">
+                        ₹{universalPricePerLiter}
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        Set in Settings → Pricing
+                      </p>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editStatus">Status</Label>
-                    <Select value={editCustomer.status || ""} onValueChange={(value) => setEditCustomer({...editCustomer, status: value as any})}>
+                    <Select
+                      value={editCustomer.status || ""}
+                      onValueChange={(value) =>
+                        setEditCustomer({
+                          ...editCustomer,
+                          status: value as any,
+                        })
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select status" />
                       </SelectTrigger>
@@ -726,32 +1082,42 @@ export default function Customers() {
                 </div>
                 <div className="pt-4 space-y-1">
                   <p className="text-sm text-muted-foreground">
-                    Current Monthly Amount: ₹{(editingCustomer?.monthlyAmount || 0).toLocaleString()}
-                    <span className="text-xs ml-2">({editingCustomer?.currentMonthDeliveries || 0} days delivered)</span>
+                    Current Monthly Amount: ₹
+                    {(
+                      customerMonthlyAmounts[editingCustomer?.id || 0] || 0
+                    ).toLocaleString()}
+                    <span className="text-xs ml-2">
+                      (Real-time calculation from daily deliveries)
+                    </span>
                   </p>
                   {editingCustomer && editCustomer.dailyQuantity && (
                     <p className="text-sm text-muted-foreground">
-                      New Monthly Amount (with changes): ₹{calculateNewMonthlyAmount(
-                        editingCustomer,
-                        editCustomer.dailyQuantity,
-                        universalPricePerLiter
-                      ).toLocaleString()}
+                      New Monthly Amount (with changes): ₹
+                      {calculatedMonthlyAmount.toLocaleString()}
                       <span className="text-xs ml-2">
-                        (Current + remaining days at new quantity)
+                        (Delivered days at old rate + remaining days at new
+                        rate)
                       </span>
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Changes affect only remaining days in this month. Rate: ₹{universalPricePerLiter}/L (universal)
+                    Rate changes affect remaining days only. Quantity changes
+                    affect remaining days only. Rate: ₹{universalPricePerLiter}
+                    /L (universal)
                   </p>
                 </div>
               </div>
               <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEditDialogOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button onClick={handleUpdateCustomer} disabled={submitting}>
-                  {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {submitting && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
                   Update Customer
                 </Button>
               </div>
@@ -763,7 +1129,9 @@ export default function Customers() {
         <div className="grid gap-6 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Active Customers
+              </CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -776,11 +1144,15 @@ export default function Customers() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Revenue</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Monthly Revenue
+              </CardTitle>
               <IndianRupee className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">₹{totalMonthlyRevenue.toLocaleString()}</div>
+              <div className="text-2xl font-bold">
+                ₹{totalMonthlyRevenue.toLocaleString()}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Daily totals till {currentDayOfMonth} days (accumulated)
               </p>
@@ -789,14 +1161,16 @@ export default function Customers() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Dues</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Pending Dues
+              </CardTitle>
               <IndianRupee className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-warning">₹{totalPendingDues.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">
-                Needs collection
-              </p>
+              <div className="text-2xl font-bold text-warning">
+                ₹{totalPendingDues.toLocaleString()}
+              </div>
+              <p className="text-xs text-muted-foreground">Needs collection</p>
             </CardContent>
           </Card>
         </div>
@@ -805,7 +1179,9 @@ export default function Customers() {
         <Card>
           <CardHeader>
             <CardTitle>Customer List</CardTitle>
-            <CardDescription>View and manage all your customers</CardDescription>
+            <CardDescription>
+              View and manage all your customers
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -837,7 +1213,9 @@ export default function Customers() {
                 <SelectContent>
                   <SelectItem value="all">All Areas</SelectItem>
                   {areas.map((area) => (
-                    <SelectItem key={area.id} value={area.id.toString()}>{area.name}</SelectItem>
+                    <SelectItem key={area.id} value={area.id.toString()}>
+                      {area.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -875,7 +1253,7 @@ export default function Customers() {
                           <div className="font-medium">{customer.name}</div>
                           <div className="text-sm text-muted-foreground flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
-                            {customer.areaName || 'No area assigned'}
+                            {customer.areaName || "No area assigned"}
                           </div>
                         </div>
                       </TableCell>
@@ -892,19 +1270,31 @@ export default function Customers() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">₹{(customer.monthlyAmount || 0).toLocaleString()}</div>
+                        <div className="font-medium">
+                          ₹
+                          {(
+                            customerMonthlyAmounts[customer.id] || 0
+                          ).toLocaleString()}
+                        </div>
                         <div className="text-xs text-muted-foreground">
-                          {customer.currentMonthDeliveries || 0} days
+                          Till date (delivered only)
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Truck className="h-3 w-3 text-muted-foreground" />
-                          {workers.find(w => w.id === customer.workerId)?.name || 'Unassigned'}
+                          {workers.find((w) => w.id === customer.workerId)
+                            ?.name || "Unassigned"}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={customer.status === "active" ? "default" : "secondary"}>
+                        <Badge
+                          variant={
+                            customer.status === "active"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
                           {customer.status === "active" ? (
                             <CheckCircle className="h-3 w-3 mr-1" />
                           ) : (
@@ -915,7 +1305,9 @@ export default function Customers() {
                       </TableCell>
                       <TableCell>
                         {(customer.pendingDues || 0) > 0 ? (
-                          <span className="text-warning font-medium">₹{(customer.pendingDues || 0).toLocaleString()}</span>
+                          <span className="text-warning font-medium">
+                            ₹{(customer.pendingDues || 0).toLocaleString()}
+                          </span>
                         ) : (
                           <span className="text-success">Paid</span>
                         )}
@@ -929,11 +1321,15 @@ export default function Customers() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => handleEditCustomer(customer)}>
+                            <DropdownMenuItem
+                              onClick={() => handleEditCustomer(customer)}
+                            >
                               <Edit className="h-4 w-4 mr-2" />
                               Edit Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleViewPaymentDetails(customer)}>
+                            <DropdownMenuItem
+                              onClick={() => handleViewPaymentDetails(customer)}
+                            >
                               <IndianRupee className="h-4 w-4 mr-2" />
                               View Payment Details
                             </DropdownMenuItem>
@@ -946,9 +1342,13 @@ export default function Customers() {
                               ) : (
                                 <MessageSquare className="h-4 w-4 mr-2" />
                               )}
-                              {generatingBill === customer.id ? 'Generating Bill...' : 'Send Bill'}
+                              {generatingBill === customer.id
+                                ? "Generating Bill..."
+                                : "Send Bill"}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleToggleStatus(customer)}>
+                            <DropdownMenuItem
+                              onClick={() => handleToggleStatus(customer)}
+                            >
                               {customer.status === "active" ? (
                                 <>
                                   <XCircle className="h-4 w-4 mr-2" />
@@ -982,7 +1382,9 @@ export default function Customers() {
               <div className="text-center py-8">
                 <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-medium">No customers found</h3>
-                <p className="text-muted-foreground">Try adjusting your search or filters</p>
+                <p className="text-muted-foreground">
+                  Try adjusting your search or filters
+                </p>
               </div>
             )}
           </CardContent>
@@ -994,15 +1396,26 @@ export default function Customers() {
             <DialogHeader>
               <DialogTitle>Delete Customer</DialogTitle>
               <DialogDescription>
-                Are you sure you want to delete <strong>{customerToDelete?.name}</strong>? This action cannot be undone and will remove all delivery history and billing records.
+                Are you sure you want to delete{" "}
+                <strong>{customerToDelete?.name}</strong>? This action cannot be
+                undone and will remove all delivery history and billing records.
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setIsDeleteDialogOpen(false)}
+              >
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={confirmDeleteCustomer} disabled={submitting}>
-                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteCustomer}
+                disabled={submitting}
+              >
+                {submitting && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
                 Delete Customer
               </Button>
             </div>

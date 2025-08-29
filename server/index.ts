@@ -10,7 +10,7 @@ import {
   getAreaById,
   createArea,
   updateArea,
-  deleteArea
+  deleteArea,
 } from "./routes/areas";
 
 // Customer routes
@@ -19,7 +19,8 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  getCustomerStats
+  getCustomerStats,
+  getCustomerCurrentMonthBill,
 } from "./routes/customers";
 
 // Worker routes
@@ -32,7 +33,7 @@ import {
   getWorkerStats,
   assignCustomersToWorker,
   getWorkerCustomers,
-  getWorkerDeliveryReport
+  getWorkerDeliveryReport,
 } from "./routes/workers";
 
 // Payment routes
@@ -45,14 +46,11 @@ import {
   getOverduePayments,
   generateMonthlyBills,
   sendPaymentReminder,
-  getCustomerPaymentSummaries
+  getCustomerPaymentSummaries,
 } from "./routes/payments";
 
 // Dashboard routes
-import {
-  getDashboardStats,
-  getRecentActivities
-} from "./routes/dashboard";
+import { getDashboardStats, getRecentActivities } from "./routes/dashboard";
 
 // Report routes
 import {
@@ -60,7 +58,7 @@ import {
   getWorkerPerformanceReport,
   getAreaWiseReport,
   getPaymentMethodReport,
-  exportReportsPDF
+  exportReportsPDF,
 } from "./routes/reports";
 
 // Daily operations routes
@@ -72,13 +70,13 @@ import {
   generateQuantityLink,
   getCustomerByToken,
   updateQuantityByToken,
-  getDailyTotals
+  getDailyTotals,
 } from "./routes/daily";
 import {
   createPaymentLink,
   getPaymentLink,
   handlePaymentCallback,
-  cancelPaymentLink
+  cancelPaymentLink,
 } from "./routes/razorpay";
 import {
   getPricingSettings,
@@ -86,7 +84,7 @@ import {
   getBusinessSettings,
   updateBusinessSettings,
   getPaymentGatewaySettings,
-  updatePaymentGatewaySettings
+  updatePaymentGatewaySettings,
 } from "./routes/settings";
 import { updateAllCustomerRates } from "./routes/update-rates";
 
@@ -127,6 +125,10 @@ export function createServer() {
   app.put("/api/customers/:id", updateCustomer);
   app.delete("/api/customers/:id", deleteCustomer);
   app.get("/api/customers/stats", getCustomerStats);
+  app.get(
+    "/api/customers/:customerId/current-month-bill",
+    getCustomerCurrentMonthBill,
+  );
 
   // Worker routes
   app.get("/api/workers", getWorkers);

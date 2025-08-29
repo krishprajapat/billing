@@ -8,7 +8,6 @@ import {
 import { supabaseDatabase } from "../database/supabase-models";
 
 export const getCustomers: RequestHandler = async (req, res) => {
-export const getCustomers: RequestHandler = async (req, res) => {
   try {
     const customers = await supabaseDatabase.getCustomers(req.query);
     const response: ApiResponse<Customer[]> = {
@@ -17,16 +16,16 @@ export const getCustomers: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching customers:', error);
+    console.error("Error fetching customers:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch customers",
+      error:
+        error instanceof Error ? error.message : "Failed to fetch customers",
     };
     res.status(500).json(response);
   }
 };
 
-export const getCustomerById: RequestHandler = async (req, res) => {
 export const getCustomerById: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -41,16 +40,16 @@ export const getCustomerById: RequestHandler = async (req, res) => {
     const response: ApiResponse<Customer> = { success: true, data: customer };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching customer:', error);
+    console.error("Error fetching customer:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch customer",
+      error:
+        error instanceof Error ? error.message : "Failed to fetch customer",
     };
     res.status(500).json(response);
   }
 };
 
-export const createCustomer: RequestHandler = async (req, res) => {
 export const createCustomer: RequestHandler = async (req, res) => {
   try {
     const customerData: CreateCustomerRequest = req.body;
@@ -77,7 +76,6 @@ export const createCustomer: RequestHandler = async (req, res) => {
   }
 };
 
-export const updateCustomer: RequestHandler = async (req, res) => {
 export const updateCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -106,7 +104,6 @@ export const updateCustomer: RequestHandler = async (req, res) => {
 };
 
 export const deleteCustomer: RequestHandler = async (req, res) => {
-export const deleteCustomer: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const deleted = await supabaseDatabase.deleteCustomer(id);
@@ -123,10 +120,11 @@ export const deleteCustomer: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error deleting customer:', error);
+    console.error("Error deleting customer:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to delete customer",
+      error:
+        error instanceof Error ? error.message : "Failed to delete customer",
     };
     res.status(500).json(response);
   }
@@ -156,10 +154,34 @@ export const getCustomerStats: RequestHandler = async (_req, res) => {
     const response: ApiResponse = { success: true, data: stats };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching customer stats:', error);
+    console.error("Error fetching customer stats:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch customer statistics",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch customer statistics",
+    };
+    res.status(500).json(response);
+  }
+};
+
+export const getCustomerCurrentMonthBill: RequestHandler = async (req, res) => {
+  try {
+    const customerId = parseInt(req.params.customerId);
+    const billData =
+      await supabaseDatabase.getCustomerCurrentMonthBill(customerId);
+
+    const response: ApiResponse<typeof billData> = {
+      success: true,
+      data: billData,
+    };
+    res.json(response);
+  } catch (error) {
+    console.error("Error fetching customer current month bill:", error);
+    const response: ApiResponse = {
+      success: false,
+      error: "Failed to fetch customer current month bill",
     };
     res.status(500).json(response);
   }

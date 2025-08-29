@@ -9,7 +9,6 @@ import { supabase } from "../database/supabase";
 import { supabaseDatabase } from "../database/supabase-models";
 
 export const getPayments: RequestHandler = async (req, res) => {
-export const getPayments: RequestHandler = async (req, res) => {
   try {
     let query = (supabase as any).from("payments").select("*");
     const { customerId, status, month, year } = req.query as any;
@@ -39,17 +38,16 @@ export const getPayments: RequestHandler = async (req, res) => {
     const response: ApiResponse<Payment[]> = { success: true, data: mapped };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching payments:', error);
+    console.error("Error fetching payments:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch payments",
+      error:
+        error instanceof Error ? error.message : "Failed to fetch payments",
     };
     res.status(500).json(response);
   }
 };
 
-
-export const recordPayment: RequestHandler = async (req, res) => {
 export const recordPayment: RequestHandler = async (req, res) => {
   try {
     const paymentData: RecordPaymentRequest = req.body;
@@ -110,13 +108,15 @@ export const recordPayment: RequestHandler = async (req, res) => {
     console.error("Payment recording error:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to record payment. Please try again.",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to record payment. Please try again.",
     };
     res.status(500).json(response);
   }
 };
 
-export const getCustomerPayments: RequestHandler = async (req, res) => {
 export const getCustomerPayments: RequestHandler = async (req, res) => {
   try {
     const customerId = parseInt(req.params.customerId);
@@ -143,10 +143,13 @@ export const getCustomerPayments: RequestHandler = async (req, res) => {
     const response: ApiResponse<Payment[]> = { success: true, data: mapped };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching customer payments:', error);
+    console.error("Error fetching customer payments:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch customer payments",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch customer payments",
     };
     res.status(500).json(response);
   }
@@ -194,17 +197,18 @@ export const getPaymentStats: RequestHandler = async (_req, res) => {
     const response: ApiResponse = { success: true, data: stats };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching payment stats:', error);
+    console.error("Error fetching payment stats:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch payment statistics",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch payment statistics",
     };
     res.status(500).json(response);
   }
 };
-};
 
-export const generateMonthlyBills: RequestHandler = async (req, res) => {
 export const generateMonthlyBills: RequestHandler = async (req, res) => {
   try {
     const { month, year } = req.body as { month?: string; year?: string };
@@ -249,10 +253,13 @@ export const generateMonthlyBills: RequestHandler = async (req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error generating monthly bills:', error);
+    console.error("Error generating monthly bills:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to generate monthly bills",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to generate monthly bills",
     };
     res.status(500).json(response);
   }
@@ -430,14 +437,17 @@ export const getCustomerPaymentSummaries: RequestHandler = async (
 
     const response: ApiResponse = {
       success: true,
-      data: validSummaries,
+      data: paymentSummaries,
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching payment summaries:', error);
+    console.error("Error fetching payment summaries:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch customer payment summaries",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch customer payment summaries",
     };
     res.status(500).json(response);
   }
@@ -468,10 +478,13 @@ export const getOverduePayments: RequestHandler = async (_req, res) => {
     };
     res.json(response);
   } catch (error) {
-    console.error('Error fetching overdue payments:', error);
+    console.error("Error fetching overdue payments:", error);
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch overdue payments",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch overdue payments",
     };
     res.status(500).json(response);
   }
