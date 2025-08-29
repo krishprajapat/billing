@@ -13,24 +13,24 @@ INSERT INTO workers (
     name, phone, email, area_id, address, emergency_contact, 
     join_date, status, efficiency, rating
 ) VALUES
-('Suresh Kumar', '+91 98765 43210', 'suresh@milkflow.com', 1, 
+('Suresh Kumar', '+91 98765 43210', 'suresh@milkflow.com', (SELECT id FROM areas WHERE name = 'Sector 15'), 
  'Village Dadri, Near Main Market', '+91 98765 43211', 
- '2023-05-15', 'active', 98.00, 4.8),
-('Mohan Lal', '+91 87654 32109', 'mohan@milkflow.com', 3, 
+ '2023-05-15', 'active'::worker_status, 98.00, 4.8),
+('Mohan Lal', '+91 87654 32109', 'mohan@milkflow.com', (SELECT id FROM areas WHERE name = 'Sector 21'), 
  'Village Mamura, Near Bus Stand', '+91 87654 32110', 
- '2023-08-20', 'active', 95.00, 4.6);
+ '2023-08-20', 'active'::worker_status, 95.00, 4.6);
 
 -- Insert sample customers
 INSERT INTO customers (
     name, phone, address, area_id, daily_quantity, rate_per_liter, 
     worker_id, status, join_date, current_month_deliveries, current_month_amount
 ) VALUES
-('Ramesh Kumar', '+91 98765 43210', '123 Main Street, Sector 15, Noida', 1, 
- 2.0, 65, 1, 'active', '2024-01-15', 29, 3770),
-('Priya Sharma', '+91 87654 32109', '456 Park Road, Sector 21, Noida', 3, 
- 1.5, 65, 2, 'active', '2024-02-20', 29, 2827.5),
-('fgtfgh', '6523562369', 'No area assigned', 1, 
- 1.0, 65, NULL, 'active', CURRENT_DATE, 0, 0);
+('Ramesh Kumar', '+91 98765 43210', '123 Main Street, Sector 15, Noida', (SELECT id FROM areas WHERE name = 'Sector 15'), 
+ 2.0, 65, (SELECT id FROM workers WHERE email = 'suresh@milkflow.com'), 'active'::customer_status, '2024-01-15', 29, 3770),
+('Priya Sharma', '+91 87654 32109', '456 Park Road, Sector 21, Noida', (SELECT id FROM areas WHERE name = 'Sector 21'), 
+ 1.5, 65, (SELECT id FROM workers WHERE email = 'mohan@milkflow.com'), 'active'::customer_status, '2024-02-20', 29, 2827.5),
+('fgtfgh', '6523562369', 'No area assigned', (SELECT id FROM areas WHERE name = 'Sector 15'), 
+ 1.0, 65, NULL, 'active'::customer_status, CURRENT_DATE, 0, 0);
 
 -- Generate sample daily deliveries for current month
 DO $$
@@ -49,7 +49,7 @@ BEGIN
     FOR customer_record IN 
         SELECT id, daily_quantity, rate_per_liter, worker_id 
         FROM customers 
-        WHERE status = 'active' AND id != 3 -- Skip the new customer
+        WHERE status = 'active'::customer_status AND name != 'fgtfgh' -- Skip the new customer
     LOOP
         -- Generate deliveries from start of month to today
         FOR day_counter IN 1..days_to_generate LOOP
@@ -64,7 +64,7 @@ BEGIN
                 delivery_date,
                 customer_record.daily_quantity,
                 customer_record.rate_per_liter,
-                'delivered',
+                'delivered'::delivery_status,
                 '07:30:00'
             );
         END LOOP;
@@ -80,7 +80,7 @@ SELECT
     daily_quantity,
     false
 FROM customers 
-WHERE status = 'active';
+WHERE status = 'active'::customer_status;
 
 -- Insert sample payments (some overdue scenarios)
 INSERT INTO payments (
@@ -88,11 +88,11 @@ INSERT INTO payments (
     due_date, paid_date, notes
 ) VALUES
 -- Ramesh Kumar - Recent payment
-(1, 3480.00, 'UPI', 'paid', 'July', 2024, '2024-08-05', '2024-07-20', 'Monthly payment via UPI'),
+( (SELECT id FROM customers WHERE name = 'Ramesh Kumar'), 3480.00, 'UPI'::payment_method, 'paid'::payment_status, 'July', 2024, '2024-08-05', '2024-07-20', 'Monthly payment via UPI'),
 -- Priya Sharma - Overdue payment
-(2, 2610.00, 'Cash', 'overdue', 'June', 2024, '2024-07-05', NULL, 'Payment pending - follow up required'),
+( (SELECT id FROM customers WHERE name = 'Priya Sharma'), 2610.00, 'Cash'::payment_method, 'overdue'::payment_status, 'June', 2024, '2024-07-05', NULL, 'Payment pending - follow up required'),
 -- Priya Sharma - Partial payment
-(2, 1500.00, 'Bank Transfer', 'partial', 'July', 2024, '2024-08-05', '2024-07-25', 'Partial payment received');
+( (SELECT id FROM customers WHERE name = 'Priya Sharma'), 1500.00, 'Bank Transfer'::payment_method, 'partial'::payment_status, 'July', 2024, '2024-08-05', '2024-07-25', 'Partial payment received');
 
 -- Generate monthly bills for current and previous months
 DO $$
@@ -121,7 +121,7 @@ BEGIN
     FOR customer_record IN 
         SELECT id, name, daily_quantity, rate_per_liter, current_month_amount 
         FROM customers 
-        WHERE status = 'active'
+        WHERE status = 'active'::customer_status
     LOOP
         -- Current month bill
         INSERT INTO monthly_bills (
@@ -135,7 +135,7 @@ BEGIN
             customer_record.rate_per_liter,
             customer_record.current_month_amount,
             customer_record.current_month_amount,
-            'pending',
+            'pending'::payment_status,
             CURRENT_DATE + INTERVAL '5 days',
             'BILL-' || customer_record.id || '-' || TO_CHAR(CURRENT_DATE, 'MMYYYY')
         );
@@ -160,8 +160,8 @@ BEGIN
                 ELSE customer_record.daily_quantity * customer_record.rate_per_liter * 15
             END,
             CASE 
-                WHEN customer_record.id = 1 THEN 'paid'
-                ELSE 'overdue'
+                WHEN customer_record.id = 1 THEN 'paid'::payment_status
+                ELSE 'overdue'::payment_status
             END,
             (CURRENT_DATE - INTERVAL '1 month') + INTERVAL '5 days',
             'BILL-' || customer_record.id || '-' || TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'MMYYYY')
@@ -175,7 +175,7 @@ SET pending_dues = (
     SELECT COALESCE(SUM(pending_amount), 0)
     FROM monthly_bills 
     WHERE monthly_bills.customer_id = customers.id 
-    AND status IN ('pending', 'overdue', 'partial')
+    AND status IN ('pending'::payment_status, 'overdue'::payment_status, 'partial'::payment_status)
 );
 
 -- Update customer monthly amounts based on current month deliveries
@@ -194,13 +194,13 @@ UPDATE workers SET
         SELECT COUNT(*) 
         FROM customers 
         WHERE customers.worker_id = workers.id 
-        AND customers.status = 'active'
+        AND customers.status = 'active'::customer_status
     ),
     monthly_revenue = (
         SELECT COALESCE(SUM(current_month_amount), 0)
         FROM customers 
         WHERE customers.worker_id = workers.id 
-        AND customers.status = 'active'
+        AND customers.status = 'active'::customer_status
     ),
     total_deliveries = (
         SELECT COUNT(*)
@@ -213,7 +213,7 @@ UPDATE workers SET
         SELECT COUNT(*)
         FROM daily_deliveries 
         WHERE daily_deliveries.worker_id = workers.id
-        AND status = 'delivered'
+        AND status = 'delivered'::delivery_status
         AND EXTRACT(MONTH FROM date) = EXTRACT(MONTH FROM CURRENT_DATE)
         AND EXTRACT(YEAR FROM date) = EXTRACT(YEAR FROM CURRENT_DATE)
     );
@@ -229,7 +229,7 @@ SELECT
     NOW() + INTERVAL '24 hours',
     true
 FROM customers 
-WHERE status = 'active';
+WHERE status = 'active'::customer_status;
 
 -- Update customers with their unique links
 UPDATE customers 
@@ -258,7 +258,7 @@ SELECT
     CASE WHEN c.id = 1 THEN 0 ELSE c.current_month_amount * 0.7 END,
     CURRENT_DATE
 FROM customers c
-WHERE c.status = 'active';
+WHERE c.status = 'active'::customer_status;
 
 -- Show summary of inserted data
 SELECT 
